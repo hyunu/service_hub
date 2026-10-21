@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   ApiError,
   createReservation,
+  fetchContainers,
+  fetchOrphans,
   fetchOverview,
+  fetchPorts,
+  fetchResourceWarnings,
+  fetchServices,
   onUnauthorized,
   request,
   setCsrfToken,
@@ -149,5 +154,96 @@ describe("api 클라이언트", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     off();
+  });
+});
+
+/**
+ * 실서버 응답 계약 회귀 테스트.
+ *
+ * 개발용 mock(lib/mock.ts)은 목록을 맨 배열로 돌려주지만, 실제 백엔드는
+ * `{"items": [...]}` 봉투로 감싸고 컨테이너는 `container_id`/`status_text`
+ * 같은 다른 필드명을 쓴다. 이 차이 때문에 로그인 직후 대시보드가
+ * `a.slice is not a function` 으로 깨진 적이 있다(빈 화면).
+ *
+ * 아래 픽스처는 실서버 응답을 그대로 옮긴 것이며, mock 을 쓰지 않는다.
+ */
+describe("api 클라이언트 — 실서버 응답 계약", () => {
+  let responder: (url: string, init: RequestInit) => Response | Promise<Response>;
+
+  beforeEach(() => {
+    responder = () => jsonResponse({});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) => responder(url, init)),
+    );
+    setCsrfToken(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setCsrfToken(null);
+  });
+
+  it("목록 봉투 {items:[...]} 를 배열로 정규화한다", async () => {
+    responder = () =>
+      jsonResponse({
+        items: [
+          {
+            container_id: "8e3d7b1",
+            container_id_short: "8e3d7b1",
+            name: "hub-frontend",
+            image: "n100-service-hub-frontend:0.1.0",
+            state: "running",
+            status_text: "running",
+            management_state: "managed",
+            service_id: null,
+            component: "hub-self",
+            compose_project: "service-hub",
+            compose_service: "frontend",
+            ports: [{ proto: "tcp", host_port: 8421, bind_addr: "127.0.0.1", container_port: 80 }],
+            health: null,
+            restart_count: 0,
+            observed_at: "2026-10-21T06:13:38.854578+00:00",
+          },
+        ],
+        count: 1,
+      });
+
+    const rows = await fetchContainers();
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows).toHaveLength(1);
+    // 실서버 필드명 → 프런트 필드명 매핑
+    expect(rows[0].id).toBe("8e3d7b1");
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].component_name).toBe("hub-self");
+    expect(rows[0].ports[0]).toMatchObject({
+      host_ip: "127.0.0.1",
+      host_port: 8421,
+      container_port: 80,
+      protocol: "tcp",
+    });
+    // 예전 크래시 지점: id 가 없으면 undefined.slice 로 렌더가 깨졌다.
+    expect(typeof rows[0].id.slice).toBe("function");
+  });
+
+  it("/resources/warnings 는 {warnings:[...]} 를 배열로 돌려준다", async () => {
+    responder = () =>
+      jsonResponse({
+        warnings: [{ kind: "memory", severity: "warn", message: "메모리 사용률 높음" }],
+        thresholds: { mem_warn_pct: 80.0, mem_crit_pct: 90.0 },
+      });
+
+    const warnings = await fetchResourceWarnings();
+    expect(Array.isArray(warnings)).toBe(true);
+    expect(warnings).toHaveLength(1);
+    // 예전 크래시 지점: warnings.slice(0,5)
+    expect(typeof warnings.slice).toBe("function");
+  });
+
+  it("목록이 비어 있어도 항상 배열을 반환한다", async () => {
+    responder = () => jsonResponse({ items: [], count: 0 });
+    expect(await fetchServices()).toEqual([]);
+    expect(await fetchOrphans()).toEqual([]);
+    expect(await fetchPorts()).toEqual([]);
   });
 });

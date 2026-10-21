@@ -937,9 +937,9 @@ export function fetchServiceContainers(
   id: string,
   signal?: AbortSignal,
 ): Promise<ContainerListItem[]> {
-  return get<unknown>(`/services/${encodeURIComponent(id)}/containers`, undefined, signal).then(
-    (r) => unwrapList<ContainerListItem>(r),
-  );
+  return get<unknown>(`/services/${encodeURIComponent(id)}/containers`, undefined, signal)
+    .then((r) => unwrapList<Record<string, unknown>>(r))
+    .then((rows) => rows.map(normalizeContainer));
 }
 
 export function fetchServiceEndpoints(
@@ -977,13 +977,17 @@ export function fetchContainers(
   query?: ContainerQuery,
   signal?: AbortSignal,
 ): Promise<ContainerListItem[]> {
-  return get<unknown>("/containers", { ...query }, signal).then((r) =>
-    unwrapList<ContainerListItem>(r),
-  );
+  return get<unknown>("/containers", { ...query }, signal)
+    .then((r) => unwrapList<Record<string, unknown>>(r))
+    .then((rows) => rows.map(normalizeContainer));
 }
 
 export function fetchContainer(id: string, signal?: AbortSignal): Promise<ContainerDetail> {
-  return get<ContainerDetail>(`/containers/${encodeURIComponent(id)}`, undefined, signal);
+  return get<Record<string, unknown>>(
+    `/containers/${encodeURIComponent(id)}`,
+    undefined,
+    signal,
+  ).then((r) => normalizeContainer(r) as unknown as ContainerDetail);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1091,6 +1095,35 @@ export function fetchDeployment(id: string, signal?: AbortSignal): Promise<Deplo
 function normalizeDeployment(d: Deployment): Deployment {
   const raw = d as Deployment & { deployment_id?: string };
   return { ...d, id: d.id ?? raw.deployment_id ?? "" };
+}
+
+/**
+ * 백엔드 컨테이너 응답 → 프런트엔드 `ContainerListItem`.
+ *
+ * 백엔드는 `container_id` / `status_text` / `component` / `ports[].proto`·
+ * `bind_addr` 로 내려주는데, 프런트 타입은 `id` / `status` / `component_name` /
+ * `ports[].protocol`·`host_ip` 를 쓴다. 이름이 다르면 `c.id.slice()` 같은 코드가
+ * `undefined` 로 깨지므로 여기서 한 번에 맞춰준다.
+ */
+function normalizeContainer(c: Record<string, unknown>): ContainerListItem {
+  const portsRaw = Array.isArray(c.ports) ? (c.ports as Record<string, unknown>[]) : [];
+  const networksRaw = Array.isArray(c.networks) ? (c.networks as NetworkRef[]) : [];
+  const ports: PortMapping[] = portsRaw.map((p) => ({
+    host_ip: (p.bind_addr as string | null) ?? (p.host_ip as string | null) ?? null,
+    host_port: (p.host_port as number | null) ?? null,
+    container_port: (p.container_port as number) ?? 0,
+    protocol: (p.protocol as string) ?? (p.proto as string) ?? "tcp",
+  }));
+  return {
+    ...(c as unknown as ContainerListItem),
+    id: (c.id as string) ?? (c.container_id as string) ?? "",
+    status: (c.status as string) ?? (c.status_text as string) ?? (c.state as string) ?? "",
+    component_name: (c.component_name as string | null) ?? (c.component as string | null) ?? null,
+    ports,
+    networks: networksRaw,
+    started_at: (c.started_at as string | null) ?? null,
+    created_at: (c.created_at as string | null) ?? null,
+  };
 }
 
 /** 배포 계획 생성 — 컨테이너를 변경하지 않는다 (읽기 전용). */
