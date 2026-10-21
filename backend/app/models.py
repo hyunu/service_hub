@@ -229,3 +229,22 @@ class WebAuthnCredential(Base):
     backed_up: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
     last_used_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class ApiKey(Base):
+    """MCP/자동화용 API 키 (해시만 저장).
+
+    키 자체는 생성 시에만 반환되며, 저장 시 bcrypt/sha256 해시만 보관한다.
+    """
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    key_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    username: Mapped[str] = mapped_column(String(120), default="admin")
+    scopes: Mapped[list] = mapped_column(JSON, default=list)  # ["*"] or ["read","deploy"]
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    last_used_at: Mapped[str | None] = mapped_column(String(40))
+    expires_at: Mapped[str | None] = mapped_column(String(40))
+    revoked_at: Mapped[str | None] = mapped_column(String(40))
+    created_by: Mapped[str] = mapped_column(String(120), default="")

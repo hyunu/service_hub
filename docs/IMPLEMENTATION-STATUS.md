@@ -49,6 +49,17 @@
   - Docker 연결 불가(snapshot=None) 시에는 어떤 행도 삭제하지 않는다.
   - DB 레코드만 변경하며 Docker는 건드리지 않는다(기존 서비스 보호 유지).
   - 테스트: `backend/tests/test_inventory_cleanup.py` 6건 추가.
+- **AI/MCP 연동 + API 키 (2026-10-22)**:
+  - `api_keys` 테이블(해시만 저장) + `GET/POST/DELETE /api/v1/apikeys`
+    (발급/목록/폐기는 브라우저 세션 전용).
+  - `require_auth`가 `X-API-Key` / `Authorization: Bearer`를 허용하고 scope를 강제한다
+    (`read` 키의 변경 요청은 403). 감사 로그 주체는 `apikey:<이름>`.
+  - 대시보드 **Settings → API 키** 탭: 발급(1회 표시) / 목록 / 폐기 / MCP 설정 스니펫.
+  - CLI: `hub apikey create|list|revoke [--db <hub.db>]` (오프라인 발급 지원).
+  - `mcp-server/` 추가 — MCP 2.x(`MCPServer`) 기반. 도구 12개(상태/서비스/컨테이너/포트
+    조회, 서비스 등록, 미관리 컨테이너 연결, 배포 계획/실행/상태, 로그).
+    임의 셸 실행 도구는 없고 기존 REST API만 호출한다.
+  - 테스트: backend +6(API 키), CLI +4, MCP 12, frontend +4(Settings).
 - **관리자 비밀번호 분실 복구 (2026-10-21)**:
   - `POST /api/v1/auth/reset-admin`: 관리자 자격 증명(사용자명·비밀번호 해시·패스워드 키)
    만 삭제하고 설정 마법사를 다시 표시한다. 서비스/포트/컨테이너 데이터는 보존.

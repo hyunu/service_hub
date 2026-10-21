@@ -1,12 +1,27 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
-import { ClipboardList, Fingerprint, KeyRound, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Ban,
+  ClipboardList,
+  Copy,
+  Fingerprint,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import {
   changePassword,
+  createApiKey,
+  fetchApiKeys,
   fetchAuditLogs,
   fetchSettings,
   isApiError,
+  revokeApiKey,
   updateSettings,
+  type ApiKeyInfo,
   type AuditLog,
   type HubSettings,
 } from "../lib/api";
@@ -624,6 +639,287 @@ function PasskeySettings() {
   );
 }
 
+/* ------------------------------ API 키 탭 ------------------------------ */
+
+const SCOPE_LABEL: Record<string, string> = {
+  "*": "전체 권한",
+  read: "읽기 전용",
+  write: "쓰기(등록/연결)",
+  deploy: "배포",
+};
+
+function ApiKeySettings() {
+  const [items, setItems] = React.useState<ApiKeyInfo[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [readOnly, setReadOnly] = React.useState(false);
+  const [expiresDays, setExpiresDays] = React.useState("");
+  const [created, setCreated] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setError(null);
+    try {
+      setItems(await fetchApiKeys());
+    } catch (e) {
+      setError(isApiError(e) ? e.message : "API 키 목록을 불러오지 못했습니다.");
+      setItems([]);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setNotice({ ok: false, text: "키 이름을 입력하세요." });
+      return;
+    }
+    const days = expiresDays.trim() === "" ? null : Number(expiresDays);
+    if (days !== null && (!Number.isFinite(days) || days < 1)) {
+      setNotice({ ok: false, text: "만료일 수는 1 이상의 숫자여야 합니다." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setCreated(null);
+    try {
+      const res = await createApiKey({
+        name: name.trim(),
+        scopes: readOnly ? ["read"] : ["*"],
+        expires_in_days: days,
+      });
+      setCreated(res.key);
+      setName("");
+      setReadOnly(false);
+      setExpiresDays("");
+      await load();
+      setNotice({ ok: true, text: "API 키를 발급했습니다. 키는 이 화면에서만 한 번 표시됩니다." });
+    } catch (e2) {
+      setNotice({ ok: false, text: isApiError(e2) ? e2.message : "API 키 발급에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (k: ApiKeyInfo) => {
+    if (!window.confirm(`API 키 '${k.name}'을(를) 폐기할까요? 이 키를 쓰는 AI 클라이언트는 즉시 연결이 끊깁니다.`)) {
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      await revokeApiKey(k.id);
+      await load();
+      setNotice({ ok: true, text: "API 키를 폐기했습니다." });
+    } catch (e) {
+      setNotice({ ok: false, text: isApiError(e) ? e.message : "폐기에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const mcpSnippet = created
+    ? JSON.stringify(
+        {
+          mcpServers: {
+            "n100-service-hub": {
+              command: "hub-mcp",
+              env: { HUB_URL: `${window.location.origin}/api/v1`, HUB_API_KEY: created },
+            },
+          },
+        },
+        null,
+        2,
+      )
+    : "";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-1">
+          <CardTitle className="inline-flex items-center gap-1.5">
+            <KeyRound className="h-4 w-4 text-primary" />
+            API 키 (AI/MCP)
+          </CardTitle>
+          <CardDescription>
+            AI 에이전트(MCP 서버)가 서비스 등록·연결·배포를 요청할 때 사용하는 키입니다.
+            서버에는 해시만 저장되며 평문은 발급 직후 한 번만 표시됩니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[12rem] flex-1">
+              <Label htmlFor="apikey-name" required>
+                키 이름
+              </Label>
+              <Input
+                id="apikey-name"
+                value={name}
+                placeholder="예: claude-code, cursor"
+                maxLength={120}
+                onChange={(e) => setName(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <div className="w-40">
+              <Label htmlFor="apikey-days">만료(일)</Label>
+              <Input
+                id="apikey-days"
+                type="number"
+                min={1}
+                placeholder="무기한"
+                value={expiresDays}
+                onChange={(e) => setExpiresDays(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+            <label className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={readOnly}
+                onChange={(e) => setReadOnly(e.target.checked)}
+                disabled={busy}
+              />
+              읽기 전용
+            </label>
+            <Button type="submit" size="sm" disabled={busy}>
+              <Plus className="h-3.5 w-3.5" />
+              {busy ? "발급 중…" : "키 발급"}
+            </Button>
+          </form>
+
+          {created ? (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="mb-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                새 API 키 — 지금 복사하세요. 다시 표시되지 않습니다.
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 break-all rounded bg-background/70 px-2 py-1.5 font-mono text-xs">
+                  {created}
+                </code>
+                <Button size="sm" variant="outline" onClick={() => void copy(created)}>
+                  <Copy className="h-3.5 w-3.5" />
+                  {copied ? "복사됨" : "복사"}
+                </Button>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                MCP 클라이언트 설정 예시 (Claude Desktop / Claude Code / Cursor)
+              </div>
+              <pre className="mt-1 max-h-44 overflow-auto rounded bg-background/70 p-2 font-mono text-[11px] leading-relaxed">
+                {mcpSnippet}
+              </pre>
+              <div className="mt-1 flex justify-end">
+                <Button size="sm" variant="ghost" onClick={() => void copy(mcpSnippet)}>
+                  <Copy className="h-3.5 w-3.5" />
+                  설정 복사
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {notice ? (
+            <div
+              className={`rounded-md border px-3 py-2 text-xs ${
+                notice.ok
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+              }`}
+              role="alert"
+            >
+              {notice.text}
+            </div>
+          ) : null}
+
+          {error ? (
+            <p className="text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          {items === null ? (
+            <p className="text-xs text-muted-foreground">불러오는 중…</p>
+          ) : items.length === 0 ? (
+            <p className="text-xs text-muted-foreground">발급된 API 키가 없습니다.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>이름</TableHead>
+                    <TableHead>권한</TableHead>
+                    <TableHead>발급</TableHead>
+                    <TableHead>마지막 사용</TableHead>
+                    <TableHead>상태</TableHead>
+                    <TableHead className="w-16" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((k) => (
+                    <TableRow key={k.id}>
+                      <TableCell className="font-medium">{k.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {(k.scopes ?? []).map((s) => SCOPE_LABEL[s] ?? s).join(", ")}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateTime(k.created_at)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {k.last_used_at ? formatDateTime(k.last_used_at) : "사용 기록 없음"}
+                      </TableCell>
+                      <TableCell>
+                        {k.revoked_at ? (
+                          <Badge variant="unknown">폐기됨</Badge>
+                        ) : k.active ? (
+                          <Badge variant="ok">활성</Badge>
+                        ) : (
+                          <Badge variant="warn">만료</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void revoke(k)}
+                          disabled={busy || !!k.revoked_at}
+                          aria-label={`${k.name} 폐기`}
+                          title="폐기"
+                        >
+                          <Ban className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <ul className="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+            <li>• 키가 유출되면 즉시 폐기하고 새로 발급하세요.</li>
+            <li>• 읽기 전용 키는 조회만 가능하고 등록/연결/배포 요청은 거부됩니다.</li>
+            <li>• 배포는 서버의 <code>HUB_ENABLE_DEPLOY</code> 잠금과 별도로 검증됩니다.</li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 /* ------------------------------ 감사 로그 탭 ------------------------------ */
 
 function AuditLogViewer() {
@@ -714,6 +1010,7 @@ export default function Settings() {
         <TabsList>
           <TabsTrigger value="general">일반/임계값</TabsTrigger>
           <TabsTrigger value="security">보안</TabsTrigger>
+          <TabsTrigger value="apikeys">API 키</TabsTrigger>
           <TabsTrigger value="audit">감사 로그</TabsTrigger>
         </TabsList>
         <TabsContent value="general">
@@ -724,6 +1021,9 @@ export default function Settings() {
             <SecuritySettings />
             <PasskeySettings />
           </div>
+        </TabsContent>
+        <TabsContent value="apikeys">
+          <ApiKeySettings />
         </TabsContent>
         <TabsContent value="audit">
           <AuditLogViewer />

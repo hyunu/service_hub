@@ -144,3 +144,44 @@ sudo hub admin reset --yes --db /var/lib/docker/volumes/service-hub_hub-data/_da
 1. 대시보드(https://<tailnet FQDN>)를 다시 열어 **설정 마법사**에서 관리자 계정을 새로 만든다.
 2. 이전 비밀번호는 복구할 수 없다 — 새 비밀번호를 안전하게 정한다.
 3. `hub status --json`로 정상 동작을 확인한다.
+4. 초기화 전에 발급한 **API 키는 그대로 유효**하다. 필요 없으면
+   대시보드 Settings → API 키에서 폐기한다.
+
+## 8. AI 에이전트의 허브 연동 (MCP)
+
+AI 코딩 도구는 셸에서 `docker`/`hub`를 직접 호출하는 대신 **MCP 도구**로 허브에 요청할 수 있다.
+MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 경로는 없다.
+
+### 8.1 준비
+
+1. 대시보드 **Settings → API 키**에서 키를 발급한다 (평문은 1회만 표시).
+   - 조회만 필요하면 `읽기 전용`, 배포까지 필요하면 전체 권한.
+2. AI 클라이언트 설정에 MCP 서버를 등록한다 (`mcp-server/README.md` §3).
+
+```json
+{
+  "mcpServers": {
+    "n100-service-hub": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/service_hub/mcp-server", "hub-mcp"],
+      "env": { "HUB_URL": "http://127.0.0.1:8420/api/v1", "HUB_API_KEY": "hub_..." }
+    }
+  }
+}
+```
+
+### 8.2 작업 순서 (MCP)
+
+1. `hub_status` → `hub_services_list` → `hub_ports_list` 로 현재 상태 확인 (§1.1과 동일한 목적)
+2. `hub_service_register(spec, deployment_path=..., dry_run=true)` 로 등록 내용 검토
+3. `hub_service_register(spec, deployment_path=...)` 로 등록 (컨테이너는 생성되지 않음)
+4. `hub_deploy_plan(spec)` → 결과가 `READY` 인지 확인
+5. `hub_deploy_apply(service_id=..., confirmed=true)` — **잠금이 열려 있을 때만** 실행된다
+6. `hub_deploy_status` / `hub_service_logs` 로 확인
+
+### 8.3 금지/주의
+
+- MCP로도 §0의 절대 금지 작업을 우회할 수 없다 (도구 자체가 없다).
+- `confirmed=true` 없이 배포를 실행하지 않는다.
+- 배포 경로는 **호스트 절대 경로**다. hub 컨테이너 내부 경로를 넣으면 실패한다.
+- API 키를 채팅/로그/커밋에 남기지 않는다. 유출 시 즉시 폐기한다.

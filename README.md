@@ -15,6 +15,7 @@ N100 PC 한 대에서 운영하는 여러 Docker Compose 기반 서비스를 통
 | `backend/` | FastAPI + SQLite 백엔드 (Docker 인벤토리, 레지스트리, 모니터, API) |
 | `frontend/` | React + TypeScript + Vite + Tailwind + shadcn/ui 대시보드 |
 | `cli/` | `hub` CLI (사람용/JSON 출력, 종료 코드 구분) |
+| `mcp-server/` | MCP 서버 — AI 에이전트가 서비스 등록·연결·배포 요청 |
 | `scripts/` | install.sh / uninstall.sh / backup.sh / motd.sh |
 | `schemas/`, `templates/` | 표준 서비스 정의 스키마와 신규 서비스 템플릿 |
 | `compose.yaml` | 관리 시스템 자체 배포 (Docker 소켓은 backend에만 마운트) |
@@ -39,6 +40,32 @@ cd cli && uv sync && uv run hub status
 (서비스/포트/컨테이너 데이터는 유지, 기존 세션 무효화 → 설정 마법사가 다시 나타난다).
 자세한 절차는 [AI-OPERATIONS.md §7](AI-OPERATIONS.md) 참고.
 
+## AI 에이전트 연동 (MCP)
+
+AI 코딩 도구가 개발 결과를 허브에 직접 등록·배포 요청할 수 있다.
+
+```bash
+# 1) 대시보드 Settings → API 키 에서 키 발급 (평문은 1회만 표시)
+# 2) MCP 서버 실행 (stdio)
+cd mcp-server && uv sync && uv run hub-mcp --print-config
+```
+
+```json
+{
+  "mcpServers": {
+    "n100-service-hub": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/service_hub/mcp-server", "hub-mcp"],
+      "env": { "HUB_URL": "http://127.0.0.1:8420/api/v1", "HUB_API_KEY": "hub_..." }
+    }
+  }
+}
+```
+
+제공 도구: 상태/서비스/컨테이너/포트 조회, `service.yaml` 등록, 미관리 컨테이너 연결,
+배포 계획/실행/상태. 배포는 기존 잠금(`HUB_ENABLE_DEPLOY`)을 그대로 따른다.
+자세한 내용: [mcp-server/README.md](mcp-server/README.md), [AI-OPERATIONS.md §8](AI-OPERATIONS.md).
+
 ## 서버 설치 (N100, Linux)
 
 ```bash
@@ -56,6 +83,7 @@ MOTD를 원래 상태로 복원한다.
 cd backend  && uv run pytest     # 서비스/포트/컨테이너/자원/인증 + 기존 서비스 보호 테스트(§19.6)
 cd frontend && npm run test && npm run build
 cd cli      && uv run pytest
+cd mcp-server && uv run pytest   # MCP 도구/변환 로직
 ```
 
 **게이트:** 기존 서비스 보호 테스트(신규 미관리 컨테이너 생성 → 인벤토리 수집 후

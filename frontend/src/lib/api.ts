@@ -912,6 +912,49 @@ export function updateSettings(body: HubSettings): Promise<HubSettings> {
 }
 
 /* ------------------------------------------------------------------ */
+/* API 키 (MCP/AI 클라이언트)                                          */
+/* ------------------------------------------------------------------ */
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  username: string;
+  scopes: string[];
+  created_at: string;
+  created_by: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  active: boolean;
+}
+
+export interface ApiKeyCreated extends ApiKeyInfo {
+  key: string;
+  note?: string;
+}
+
+export interface ApiKeyCreatePayload {
+  name: string;
+  scopes?: string[];
+  expires_in_days?: number | null;
+}
+
+export function fetchApiKeys(signal?: AbortSignal): Promise<ApiKeyInfo[]> {
+  return get<unknown>("/apikeys", undefined, signal).then((r) => unwrapList<ApiKeyInfo>(r));
+}
+
+export function createApiKey(body: ApiKeyCreatePayload): Promise<ApiKeyCreated> {
+  return send<ApiKeyCreated>("/apikeys", "POST", body);
+}
+
+export function revokeApiKey(id: string): Promise<ApiKeyInfo & { revoked: boolean }> {
+  return send<ApiKeyInfo & { revoked: boolean }>(
+    `/apikeys/${encodeURIComponent(id)}`,
+    "DELETE",
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 서비스                                                              */
 /* ------------------------------------------------------------------ */
 

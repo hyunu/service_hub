@@ -13,6 +13,7 @@ from .db import init_db
 from .dependencies import get_gateway, set_gateway
 from .docker_client import DockerGateway
 from .monitor import Monitor
+from .routers import apikeys as apikeys_router
 from .routers import auth as auth_router
 from .routers import containers as containers_router
 from .routers import events as events_router
@@ -77,6 +78,7 @@ def create_app(settings: Settings | None = None,
 
     p = API_PREFIX
     app.include_router(auth_router.router, prefix=f"{p}")
+    app.include_router(apikeys_router.router, prefix=f"{p}")
     app.include_router(webauthn_router.router, prefix=f"{p}")
     app.include_router(system_router.router, prefix=f"{p}")
     app.include_router(services_router, prefix=f"{p}")

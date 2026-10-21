@@ -539,6 +539,177 @@ def cmd_admin_reset(args: argparse.Namespace) -> None:
     emit(data, args.json, render)
 
 
+# ---------------------------------------------------------------- apikey --
+
+API_KEY_SCOPES = {"read", "write", "deploy", "*"}
+
+
+def _apikey_db_path(args: argparse.Namespace) -> Path:
+    raw = args.db or os.environ.get("HUB_DB_PATH") or "./data/hub.db"
+    return Path(raw).expanduser()
+
+
+def _ensure_api_keys_table(con) -> None:
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS api_keys ("
+        " id VARCHAR(36) NOT NULL PRIMARY KEY,"
+        " key_hash VARCHAR(128) NOT NULL UNIQUE,"
+        " name VARCHAR(120) NOT NULL,"
+        " username VARCHAR(120) NOT NULL DEFAULT 'admin',"
+        " scopes JSON NOT NULL DEFAULT '[]',"
+        " created_at VARCHAR(40) NOT NULL,"
+        " last_used_at VARCHAR(40),"
+        " expires_at VARCHAR(40),"
+        " revoked_at VARCHAR(40),"
+        " created_by VARCHAR(120) NOT NULL DEFAULT '')")
+
+
+def _create_api_key_offline(path: Path, name: str, scopes: list[str],
+                            days: int | None) -> dict[str, Any]:
+    """DB 파일을 직접 열어 API 키를 발급한다 (부트스트랩/오프라인).
+
+    서버에는 SHA-256 해시만 저장하고, 평문 키는 이 출력에서만 보인다.
+    """
+    import datetime
+    import hashlib
+    import secrets
+    import sqlite3
+    import uuid
+
+    if not path.exists():
+        raise CliError(f"DB 파일을 찾을 수 없습니다: {path}", EXIT_NOTFOUND)
+
+    con = sqlite3.connect(str(path))
+    try:
+        tables = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "settings" not in tables:
+            raise CliError(f"Service Hub DB가 아닙니다 (settings 테이블 없음): {path}",
+                           EXIT_REJECTED)
+        _ensure_api_keys_table(con)
+        raw = "hub_" + secrets.token_urlsafe(32)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expires = ((now + datetime.timedelta(days=days)).isoformat()
+                   if days else None)
+        key_id = str(uuid.uuid4())
+        con.execute(
+            "INSERT INTO api_keys (id, key_hash, name, username, scopes, created_at,"
+            " expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key_id, hashlib.sha256(raw.encode()).hexdigest(), name, "admin",
+             json.dumps(scopes), now.isoformat(), expires, "cli:offline"))
+        con.commit()
+    except sqlite3.Error as exc:
+        con.rollback()
+        raise CliError(f"API 키 발급 실패: {exc}", EXIT_ERR) from exc
+    finally:
+        con.close()
+    return {"ok": True, "mode": "offline", "db": str(path), "id": key_id,
+            "name": name, "scopes": scopes, "expires_at": expires, "key": raw}
+
+
+def _revoke_api_key_offline(path: Path, key_id: str) -> dict[str, Any]:
+    import datetime
+    import sqlite3
+
+    if not path.exists():
+        raise CliError(f"DB 파일을 찾을 수 없습니다: {path}", EXIT_NOTFOUND)
+    con = sqlite3.connect(str(path))
+    try:
+        _ensure_api_keys_table(con)
+        row = con.execute("SELECT name, revoked_at FROM api_keys WHERE id=?",
+                          (key_id,)).fetchone()
+        if row is None:
+            raise CliError(f"API 키를 찾을 수 없습니다: {key_id}", EXIT_NOTFOUND)
+        if row[1]:
+            return {"ok": True, "mode": "offline", "id": key_id, "name": row[0],
+                    "revoked": False, "note": "이미 폐기된 키입니다."}
+        con.execute("UPDATE api_keys SET revoked_at=? WHERE id=?",
+                    (datetime.datetime.now(datetime.timezone.utc).isoformat(), key_id))
+        con.commit()
+        return {"ok": True, "mode": "offline", "id": key_id, "name": row[0],
+                "revoked": True}
+    finally:
+        con.close()
+
+
+def cmd_apikey_create(args: argparse.Namespace) -> None:
+    """AI/MCP 클라이언트용 API 키를 발급한다.
+
+    평문 키는 이 출력에서 한 번만 보인다. 서버에는 해시만 저장된다.
+    """
+    scopes = [s.strip().lower() for s in (args.scope or ["*"])]
+    unknown = [s for s in scopes if s not in API_KEY_SCOPES]
+    if unknown:
+        raise CliError(f"알 수 없는 scope: {unknown} "
+                       f"(사용 가능: {sorted(API_KEY_SCOPES)})", EXIT_USAGE)
+    if not args.db and not os.environ.get("HUB_DB_PATH"):
+        raise CliError(
+            "API 키 발급은 DB 직접 접근이 필요합니다. 대시보드 Settings → API 키에서 "
+            "발급하거나, `hub apikey create --name ... --db <hub.db>` 를 사용하세요.",
+            EXIT_USAGE)
+    data = _create_api_key_offline(_apikey_db_path(args), args.name, scopes, args.days)
+
+    def render(d: dict[str, Any]) -> None:
+        print("API 키를 발급했습니다. 이 값은 다시 표시되지 않습니다.")
+        print(f"  이름   : {d['name']}")
+        print(f"  ID     : {d['id']}")
+        print(f"  scope  : {', '.join(d['scopes'])}")
+        if d.get("expires_at"):
+            print(f"  만료   : {d['expires_at']}")
+        print(f"  키     : {d['key']}")
+        print()
+        print("AI 클라이언트(MCP)에는 다음과 같이 설정하세요:")
+        print(f"  HUB_URL={base_url()}")
+        print(f"  HUB_API_KEY={d['key']}")
+
+    emit(data, args.json, render)
+
+
+def cmd_apikey_list(args: argparse.Namespace) -> None:
+    if args.db:
+        import sqlite3
+        path = _apikey_db_path(args)
+        if not path.exists():
+            raise CliError(f"DB 파일을 찾을 수 없습니다: {path}", EXIT_NOTFOUND)
+        con = sqlite3.connect(str(path))
+        try:
+            _ensure_api_keys_table(con)
+            rows = con.execute(
+                "SELECT id, name, scopes, created_at, last_used_at, revoked_at"
+                " FROM api_keys ORDER BY created_at DESC").fetchall()
+        finally:
+            con.close()
+        items = [{"id": r[0], "name": r[1], "scopes": json.loads(r[2] or "[]"),
+                  "created_at": r[3], "last_used_at": r[4], "revoked_at": r[5]}
+                 for r in rows]
+        data: Any = {"items": items, "count": len(items), "mode": "offline"}
+    else:
+        data = api("/apikeys")
+        data.setdefault("mode", "api")
+
+    def render(d: dict[str, Any]) -> None:
+        items = d.get("items", [])
+        if not items:
+            print("API 키가 없습니다.")
+            return
+        for k in items:
+            state = "폐기됨" if k.get("revoked_at") else "활성"
+            print(f"{k['id']}  {state:4s}  {k['name']}  scopes={','.join(k.get('scopes') or [])}")
+
+    emit(data, args.json, render)
+
+
+def cmd_apikey_revoke(args: argparse.Namespace) -> None:
+    if not args.db and not os.environ.get("HUB_DB_PATH"):
+        raise CliError(
+            "API 키 폐기는 DB 직접 접근이 필요합니다. 대시보드에서 폐기하거나 "
+            "`hub apikey revoke <id> --db <hub.db>` 를 사용하세요.", EXIT_USAGE)
+    data = _revoke_api_key_offline(_apikey_db_path(args), args.key_id)
+    emit(data, args.json,
+         lambda d: print(f"API 키 {d['id']} ({d['name']})를 폐기했습니다."
+                         if d.get("revoked") else d.get("note", "변경 없음")))
+
+
 # ---------------------------------------------------------------- parser ----
 
 def build_parser() -> argparse.ArgumentParser:
@@ -558,6 +729,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  hub logs ai-platform --tail 100\n"
             "  hub deploy plan ./service.yaml --json\n"
             "  hub admin reset --yes            # 관리자 비밀번호 분실 복구\n"
+            "  hub apikey create --name claude-code --db /srv/hub/hub.db  # AI/MCP 키 발급\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -641,6 +813,26 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--yes", action="store_true", help="확인 없이 실행")
     ar.add_argument("--json", action="store_true")
     ar.set_defaults(func=cmd_admin_reset)
+
+    ak = sub.add_parser("apikey", help="MCP/AI 클라이언트용 API 키 관리").add_subparsers(
+        dest="cmd", required=True)
+    akc = ak.add_parser("create", help="API 키 발급 (평문은 1회만 표시)")
+    akc.add_argument("--name", required=True, help="키 이름 (예: claude-code)")
+    akc.add_argument("--scope", action="append", choices=sorted(API_KEY_SCOPES),
+                     help="권한 (기본 '*'). 여러 번 지정 가능")
+    akc.add_argument("--days", type=int, default=None, help="만료일 수 (기본 무기한)")
+    akc.add_argument("--db", default=None, help="Hub DB 파일 경로 (기본 $HUB_DB_PATH)")
+    akc.add_argument("--json", action="store_true")
+    akc.set_defaults(func=cmd_apikey_create)
+    akl = ak.add_parser("list", help="API 키 목록 (평문 키는 표시되지 않음)")
+    akl.add_argument("--db", default=None, help="오프라인 모드: Hub DB 파일 경로")
+    akl.add_argument("--json", action="store_true")
+    akl.set_defaults(func=cmd_apikey_list)
+    akr = ak.add_parser("revoke", help="API 키 폐기")
+    akr.add_argument("key_id")
+    akr.add_argument("--db", default=None, help="Hub DB 파일 경로 (기본 $HUB_DB_PATH)")
+    akr.add_argument("--json", action="store_true")
+    akr.set_defaults(func=cmd_apikey_revoke)
 
     return p
 

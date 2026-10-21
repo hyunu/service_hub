@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import secrets
 import threading
 import time
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
-from .models import Setting, WebAuthnCredential
+from .models import ApiKey, Setting, WebAuthnCredential
 
 
 class HubError(HTTPException):
@@ -215,13 +216,28 @@ def get_valid_session(db: Session, token: str | None) -> dict | None:
 
 def require_auth(request: Request, db: Session = Depends(get_db),
                  hub_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
-                 x_csrf_token: str | None = Header(default=None)) -> dict:
-    """mutation은 항상 인증+CSRF. 읽기(GET)는 루프백 전용 바인드에서만 생략."""
+                 x_csrf_token: str | None = Header(default=None),
+                 x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+                 authorization: str | None = Header(default=None)) -> dict:
+    """mutation은 항상 인증+CSRF. 읽기(GET)는 루프백 전용 바인드에서만 생략.
+
+    MCP/자동화 클라이언트를 위해 API 키(X-API-Key 또는 Authorization: Bearer ...)도
+    허용한다. API 키는 헤더 기반 비브라우저 클라이언트이므로 CSRF 토큰을 요구하지 않는다.
+    """
     settings = get_settings()
     session = get_valid_session(db, hub_session)
     mutation = request.method not in ("GET", "HEAD", "OPTIONS")
 
     if session is None:
+        key = x_api_key or authorization
+        api_auth = verify_api_key(db, key) if key else None
+        if api_auth:
+            scopes = api_auth.get("scopes") or ["*"]
+            if mutation and "*" not in scopes and not ({"write", "deploy"} & set(scopes)):
+                raise HubError(status_code=403,
+                               detail="이 API 키에는 쓰기 권한이 없습니다",
+                               code="insufficient_scope")
+            return {"username": api_auth["username"], "auth": "api_key", "scopes": scopes}
         if mutation or not settings.loopback_only:
             raise HubError(status_code=401, detail="로그인이 필요합니다", code="unauthorized")
         return {"username": "local-loopback"}
@@ -231,12 +247,36 @@ def require_auth(request: Request, db: Session = Depends(get_db),
     return {"username": session["username"]}
 
 
-def get_read_actor(request: Request,
-                   hub_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> str:
-    """감사 로그용 주체 표기."""
+def require_session_auth(request: Request, db: Session = Depends(get_db),
+                         hub_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+                         x_csrf_token: str | None = Header(default=None)) -> dict:
+    """브라우저 세션 전용 인증 (API 키로는 접근 불가).
+
+    API 키 발급/폐기 같은 관리 작업에 사용한다 — 키가 스스로 새 키를 만들 수
+    없도록 하기 위함이다.
+    """
+    session = get_valid_session(db, hub_session)
+    if session is None:
+        raise HubError(status_code=401, detail="로그인이 필요합니다", code="unauthorized")
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if not x_csrf_token or x_csrf_token != session["csrf"]:
+            raise HubError(status_code=403, detail="CSRF 토큰이 일치하지 않습니다", code="csrf")
+    return {"username": session["username"]}
+
+
+def get_read_actor(request: Request, db: Session = Depends(get_db),
+                   hub_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+                   x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+                   authorization: str | None = Header(default=None)) -> str:
+    """감사 로그용 주체 표기 (세션 > API 키 > 로컬)."""
     session = get_session_info(hub_session)
     if session:
         return session["username"]
+    key = x_api_key or authorization
+    if key:
+        info = verify_api_key(db, key)
+        if info:
+            return f"apikey:{info['name'] or info['api_key_id'][:8]}"
     client = request.client
     return f"local:{client.host}" if client else "local"
 
@@ -258,3 +298,57 @@ def mask_env_dict(env: dict | None) -> dict:
         return {}
     return {k: (masked(v) if any(h in k.upper() for h in SECRET_KEY_HINTS) else v)
             for k, v in env.items()}
+
+
+def hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def verify_api_key(db: Session, key: str) -> dict | None:
+    """API 키로 인증한다. 성공 시 {"username": ..., "scopes": [...] } 반환."""
+    if not key or not key.strip():
+        return None
+    k = key.strip()
+    if k.startswith("Bearer "):
+        k = k[7:].strip()
+    h = hash_api_key(k)
+    row = db.query(ApiKey).filter(ApiKey.key_hash == h).first()
+    if row is None:
+        return None
+    if row.revoked_at:
+        return None
+    if row.expires_at:
+        try:
+            if row.expires_at < _utcnow():
+                return None
+        except Exception:
+            pass
+    _touch_api_key(row)
+    scopes = row.scopes or ["*"]
+    return {"username": row.username or "admin", "scopes": scopes,
+            "api_key_id": row.id, "name": row.name}
+
+
+def _touch_api_key(row: ApiKey) -> None:
+    """마지막 사용 시각을 별도 세션으로 기록한다.
+
+    요청의 트랜잭션을 오염시키지 않도록 분리한다. 1분 이내 재사용은 생략.
+    """
+    now = _utcnow()
+    last = row.last_used_at
+    if last:
+        try:
+            from datetime import datetime
+            if (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() < 60:
+                return
+        except Exception:
+            pass
+    try:
+        from .db import get_session_factory
+        with get_session_factory()() as s:
+            fresh = s.get(ApiKey, row.id)
+            if fresh is not None:
+                fresh.last_used_at = now
+                s.commit()
+    except Exception:
+        pass

@@ -404,3 +404,73 @@ def test_admin_reset_offline_requires_admin(tmp_path):
         main(["admin", "reset", "--yes", "--db", str(db)])
     assert exc.value.code == 5
 
+
+
+# ---------------------------------------------------------------- apikey --
+
+def test_apikey_create_offline_and_list(tmp_path, capsys):
+    """오프라인 모드로 키를 발급하고, 평문은 1회만 출력된다."""
+    import hashlib
+    import sqlite3
+
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    main(["apikey", "create", "--name", "claude-code", "--db", str(db)])
+    out = capsys.readouterr().out
+    assert "API 키를 발급했습니다" in out
+
+    con = sqlite3.connect(str(db))
+    rows = con.execute("SELECT id, name, scopes, key_hash FROM api_keys").fetchall()
+    con.close()
+    assert len(rows) == 1
+    key_id, name, scopes, key_hash = rows[0]
+    assert name == "claude-code"
+    assert json.loads(scopes) == ["*"]
+    # 저장된 값은 해시이며, 평문 키를 알 수 없어야 한다
+    assert len(key_hash) == 64
+    assert "hub_" not in key_hash
+
+    main(["apikey", "list", "--db", str(db)])
+    listed = capsys.readouterr().out
+    assert key_id in listed
+    assert "활성" in listed
+    assert hashlib.sha256(b"x").hexdigest() != key_hash
+
+
+def test_apikey_create_prints_key_once(tmp_path, capsys):
+    """출력에 평문 키가 포함되고, 목록에는 포함되지 않는다."""
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    main(["apikey", "create", "--name", "ai", "--db", str(db), "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["key"].startswith("hub_")
+
+    main(["apikey", "list", "--db", str(db), "--json"])
+    listed = json.loads(capsys.readouterr().out)
+    assert data["key"] not in json.dumps(listed)
+
+
+def test_apikey_revoke_offline(tmp_path, capsys):
+    import sqlite3
+
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    main(["apikey", "create", "--name", "ai", "--db", str(db), "--json"])
+    key_id = json.loads(capsys.readouterr().out)["id"]
+
+    main(["apikey", "revoke", key_id, "--db", str(db)])
+    assert "폐기" in capsys.readouterr().out
+
+    con = sqlite3.connect(str(db))
+    revoked = con.execute("SELECT revoked_at FROM api_keys WHERE id=?",
+                          (key_id,)).fetchone()[0]
+    con.close()
+    assert revoked
+
+
+def test_apikey_create_without_db_is_rejected(monkeypatch):
+    """DB 경로가 없으면 대시보드/--db 사용법을 안내하고 종료 코드 2."""
+    monkeypatch.delenv("HUB_DB_PATH", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        main(["apikey", "create", "--name", "x"])
+    assert exc.value.code == 2

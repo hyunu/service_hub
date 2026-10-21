@@ -43,6 +43,9 @@
 | 15 | 비밀번호 변경 | `POST /auth/change-password` — 세션+CSRF+현 비밀번호 재확인, 감사 로그 | 2~3 |
 | 16 | 패스워드리스 | WebAuthn — HTTPS 컨텍스트 전용, 공개키만 저장, 1회용 챌린지 | 2~3 |
 | 17 | 관리자 초기화 | `POST /auth/reset-admin` — 루프백 또는 1회용 복구 토큰만, 감사 로그 | 3 |
+| 18 | API 키(MCP) | `X-API-Key`/`Bearer` — SHA-256 해시만 저장, 발급 응답에서 1회만 평문 노출 | 3 |
+| 19 | API 키 권한 제한 | scope(read/write/deploy/*) — read 키는 변경 요청 403, 발급/폐기는 세션 전용 | 3 |
+| 20 | API 키 감사/폐기 | `apikey:<이름>` 주체로 감사 로그 기록, 폐기 즉시 인증 거부 | 3 |
 
 ## 추가 통제
 
@@ -79,6 +82,19 @@
   - 초기화는 감사 로그(`auth.admin_reset`)에 남는다.
   - 오프라인 모드(`hub admin reset --db <경로>`)는 DB 파일을 직접 다루므로 백업 사본을
     먼저 남기고, 테이블을 직접 쿼리하지 않고 `settings`/`webauthn_credentials`만 건드린다.
+- API 키(MCP/AI 클라이언트)는 다음 통제를 적용한다.
+  - 서버에는 **SHA-256 해시만** 저장한다. 평문 키는 발급 응답에서 한 번만 반환하며
+    목록/감사 로그/오류 메시지에 다시 나타나지 않는다.
+  - 발급·목록·폐기는 **브라우저 세션 전용**(`require_session_auth`)이다. API 키로는
+    새 키를 만들 수 없어 권한 상승 경로가 없다. 폐기는 `revoked_at`만 기록한다.
+  - scope(`read`/`write`/`deploy`/`*`)를 강제한다. `read` 키의 변경 요청은
+    `403 insufficient_scope`로 거부한다. 키 생성 시 미지의 scope는 422로 거절한다.
+  - API 키 인증은 CSRF 토큰을 요구하지 않는다(비브라우저 헤더 클라이언트). 대신
+    쿠키를 쓰지 않으므로 CSRF 대상이 아니며, 키 자체가 인증 비밀이다.
+  - 인증 사용은 감사 로그에 `apikey:<이름>` 주체로 기록된다.
+  - API 키도 배포 잠금(`HUB_ENABLE_DEPLOY`)·화이트리스트·`confirmed=true` 검증을
+    우회하지 못한다 — 권한은 "누가 요청했는가"만 바꾼다.
+  - MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며 셸/파일 실행 도구를 노출하지 않는다.
 
 ## 수용 불가 구조 (명시)
 
