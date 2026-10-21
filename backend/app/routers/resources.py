@@ -37,6 +37,37 @@ def host_resources(db: Session = Depends(get_db)):
                                     interval=settings.monitor_interval)
         tracker.add(host.cpu_percent or 0.0)
         warnings = evaluate_thresholds(host, settings, tracker)
+
+    # 프런트엔드와 API 계약 맞추기 (필드명/위치 정규화)
+    filesystems = host.disk_filesystems if host else None
+    root_used = host.disk_root_used_gb if host else None
+    root_total = host.disk_root_total_gb if host else None
+    root_pct = host.disk_root_percent if host else None
+    if host and (root_used is None or root_total is None or root_pct is None) and filesystems:
+        root_fs = next((fs for fs in filesystems if fs.get("mount") == "/"), None) \
+                  or (filesystems[0] if filesystems else None)
+        if root_fs:
+            root_used = root_used if root_used is not None else root_fs.get("used_gb")
+            root_total = root_total if root_total is not None else root_fs.get("total_gb")
+            root_pct = root_pct if root_pct is not None else root_fs.get("percent")
+
+    net_ifaces_raw = host.net_ifaces if host else None
+    net_ifaces = None
+    if net_ifaces_raw is not None:
+        net_ifaces = []
+        for ni in net_ifaces_raw:
+            net_ifaces.append({
+                "name": ni.get("name") or ni.get("iface"),
+                "iface": ni.get("iface") or ni.get("name"),
+                "rx_bps": ni.get("rx_bps"),
+                "tx_bps": ni.get("tx_bps"),
+                "rx_total_bytes": ni.get("rx_bytes") or ni.get("rx_total_bytes"),
+                "tx_total_bytes": ni.get("tx_bytes") or ni.get("tx_total_bytes"),
+                "errors": ni.get("errors"),
+            })
+
+    temperature_c = host.temperature_c if host else None
+
     return {
         "cpu": {"percent": host.cpu_percent if host else None,
                 "cores": host.cpu_cores if host else None,
@@ -48,18 +79,22 @@ def host_resources(db: Session = Depends(get_db)):
                    "cached_mb": None,
                    "swap_used_mb": host.swap_used_mb if host else None,
                    "swap_total_mb": host.swap_total_mb if host else None},
-        "disk": {"filesystems": host.disk_filesystems if host else None,
-                 "root_used_gb": host.disk_root_used_gb if host else None,
-                 "root_total_gb": host.disk_root_total_gb if host else None,
-                 "root_percent": host.disk_root_percent if host else None},
-        "network": {"interfaces": host.net_ifaces if host else None},
+        "disk": {"total_gb": root_total,
+                 "used_gb": root_used,
+                 "percent": root_pct,
+                 "filesystems": filesystems,
+                 "root_used_gb": root_used,
+                 "root_total_gb": root_total,
+                 "root_percent": root_pct},
+        "network": {"interfaces": net_ifaces},
         "system": {"hostname": host.hostname if host else None,
                    "os": host.os_name if host else None,
                    "kernel": host.kernel if host else None,
                    "booted_at": host.boot_at if host else None,
                    "uptime_seconds": host.uptime_seconds if host else None,
                    "uptime_human": host.uptime_human if host else None,
-                   "temperature_c": host.temperature_c if host else None},
+                   "temperature_c": temperature_c,
+                   "cpu_temp_c": temperature_c},
         "warnings": warnings,
         "samples": [{"ts": s.ts, "cpu_percent": s.cpu_percent,
                      "mem_used_mb": s.mem_used_mb, "extras": s.extras}
