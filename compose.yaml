@@ -1,0 +1,60 @@
+# N100 Service Hub 자체 배포 compose
+#
+# 보안 원칙 (docs/SECURITY.md):
+#   * Docker 소켓은 backend에만 마운트한다. frontend에는 절대 마운트하지 않는다.
+#   * 서비스(외부 앱) 데이터는 이 compose의 볼륨과 분리한다. hub는 /srv/services 아래
+#     서비스 디렉터리에 대해서만 배포 작업을 허용한다(Phase 3).
+#   * 관리 포트는 루프백/내부망에서만 접근한다. 외부 노출 시 방화벽 필수.
+name: service-hub
+
+labels:
+  com.hub.self: "true"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: n100-service-hub-backend:0.1.0
+    container_name: hub-backend
+    restart: unless-stopped
+    environment:
+      HUB_BIND: 0.0.0.0          # 컨테이너 내부 바인딩 (호스트에서는 HUB_PORT만 노출)
+      HUB_PORT: 8420
+      HUB_DB_PATH: /data/hub.db
+      HUB_STATUS_CACHE: /data/status.json
+      HUB_ENABLE_DEPLOY: "false"
+    volumes:
+      - hub-data:/data
+      - ${HUB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${HUB_SERVICES_DIR:-/srv/services}:/srv/services:rw
+    ports:
+      # 외부 공개가 필요하면 "127.0.0.1:8420:8420" 또는 내부망 IP로 변경
+      - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-8420}:8420"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8420/api/v1/system/status')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      com.hub.managed: "true"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_BASE: /api/v1
+    image: n100-service-hub-frontend:0.1.0
+    container_name: hub-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8421:80"      # 프런트엔드는 루프백 전용. 소켓 미마운트.
+    labels:
+      com.hub.managed: "true"
+
+volumes:
+  hub-data:
+    labels:
+      com.hub.managed: "true"
