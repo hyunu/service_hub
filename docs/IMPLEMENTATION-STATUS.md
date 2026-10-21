@@ -121,6 +121,19 @@
   수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
   검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
+### N100 서버 배포 검증 (2026-10-22, MCP/API 키 포함)
+- 커밋 `be24ece` 배포: `api_keys` 테이블 자동 생성 확인, 대시보드 200, `GET /apikeys`
+  무인증 → `401 unauthorized` 확인.
+- MCP 서버를 tailnet URL로 실제 서버에 연결해 검증:
+  - `hub_status` → `n100-pve-dev` / Linux 6.8 정상 응답
+  - `hub_containers_list` → 8개 (assetnest 6 + hub 2)
+  - `hub_orphans_list` → 6개 (서비스 미등록 상태)
+  - `hub_service_register(dry_run)` → 페이로드 변환 확인 (DB 미변경)
+  - `hub_deploy_apply` → `503 deploy_disabled` (잠금 정상 동작)
+  - 검증용 키는 폐기 후 `401 unauthorized` 재확인 완료
+- 기존 서비스 보존: assetnest-* 컨테이너 6개 무변경, 볼륨 md5 `1d98df79…` /
+  네트워크 md5 `0e96287e…` 동일.
+
 ### N100 서버 배포 검증 (2026-10-22, 인벤토리 정리 포함)
 - 커밋 `5faa01d` 배포 후 인벤토리가 **자동 정리**되어 컨테이너 행이 40 → **8**로 줄었다
   (실제 Docker 컨테이너 수와 일치: assetnest 6 + hub 2). 이전 인스턴스/테스트 컨테이너
