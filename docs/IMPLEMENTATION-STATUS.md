@@ -46,10 +46,10 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **107 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **110 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **1 passed (실제 Docker 데몬 사용, skip 아님)** |
 | CLI | `cd cli && uv run pytest` | **21 passed** (Phase 1: 14) |
-| 프론트엔드 테스트 | `npm run test --prefix frontend` | **42 passed (8 files)** (Phase 1: 30) |
+| 프론트엔드 테스트 | `npm run test --prefix frontend` | **45 passed (9 files)** (Phase 1: 30) |
 | 프론트엔드 빌드 | `npm run build --prefix frontend` | **성공** (tsc 0 errors) |
 | 배포 게이트 기본값 | `Settings().deploy_gate()` | **`(False, ...)` — 기본 잠금 확인** |
 

@@ -92,6 +92,8 @@ export function formatPercent(
 export function formatBytesMb(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "N/A";
   if (value >= 1024) return `${(value / 1024).toFixed(1)} GB`;
+  // 1MB 미만을 0으로 반올림하면 실제 트래픽이 "0 MB"로 보인다 → KB로 표기
+  if (value < 1) return `${Math.round(value * 1024)} KB`;
   return `${Math.round(value)} MB`;
 }
 
