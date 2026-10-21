@@ -1,7 +1,14 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Rocket } from "lucide-react";
-import { fetchDeployments, isApiError, type Deployment } from "../lib/api";
+import { RefreshCw, Rocket, ShieldAlert } from "lucide-react";
+import {
+  fetchDeployments,
+  getDeployPlan,
+  applyDeploy,
+  isApiError,
+  type Deployment,
+  type DeployPlan,
+} from "../lib/api";
 import { DEPLOYMENT_STATUS_LABEL, DEPLOYMENT_STATUS_VARIANT } from "../lib/labels";
 import { formatDateTime, formatRelative } from "../lib/format";
 import { PageHeader, LoadingState, ErrorState, EmptyState } from "../components/feedback";
@@ -10,12 +17,17 @@ import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 
-/** 배포 목록 (Phase 1: 읽기 전용) */
+/** 배포 목록 + 계획 미리보기/실행 (Phase 3 — 서버 잠금 시 조회만 가능) */
 export default function Deployments() {
   const navigate = useNavigate();
   const [items, setItems] = React.useState<Deployment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+
+  const [specText, setSpecText] = React.useState("");
+  const [plan, setPlan] = React.useState<DeployPlan | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -34,11 +46,57 @@ export default function Deployments() {
     void load();
   }, [load]);
 
+  const parseSpec = (): unknown | null => {
+    try {
+      return JSON.parse(specText) as unknown;
+    } catch {
+      setActionError("서비스 정의(JSON)를 해석할 수 없습니다.");
+      return null;
+    }
+  };
+
+  const onPreview = async () => {
+    setActionError(null);
+    setPlan(null);
+    const spec = parseSpec();
+    if (spec === null) return;
+    setBusy(true);
+    try {
+      setPlan(await getDeployPlan(spec));
+    } catch (e) {
+      setActionError(isApiError(e) ? e.message : "계획 생성에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onApply = async () => {
+    setActionError(null);
+    const spec = parseSpec();
+    if (spec === null) return;
+    setBusy(true);
+    try {
+      const res = await applyDeploy(spec);
+      setActionError(
+        res.error ? `배포 ${res.status}: ${res.error}` : `배포 ${res.status} (${res.deployment_id})`,
+      );
+      await load();
+    } catch (e) {
+      if (isApiError(e) && e.code === "deploy_disabled") {
+        setActionError("배포 기능이 비활성화되어 있습니다 (HUB_ENABLE_DEPLOY=false).");
+      } else {
+        setActionError(isApiError(e) ? e.message : "배포 실행에 실패했습니다.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Deployments"
-        description="배포 계획/실행 이력 · Phase 1에서는 조회만 가능합니다."
+        description="배포 계획/실행 이력 · 계획 미리보기는 읽기 전용, 실행은 서버 잠금 해제 시에만 동작합니다."
         actions={
           <Button variant="outline" size="sm" onClick={() => void load()}>
             <RefreshCw className="h-3.5 w-3.5" />
@@ -50,13 +108,68 @@ export default function Deployments() {
       <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
         <Rocket className="mt-0.5 h-4 w-4 shrink-0" />
         <div>
-          <strong className="font-semibold">배포 비활성화됨</strong>
+          <strong className="font-semibold">배포는 기본 잠금 상태입니다</strong>
           <p className="mt-0.5">
-            현재 빌드는 읽기 전용 단계이며 <span className="font-mono">HUB_ENABLE_DEPLOY=false</span> 로
-            잠겨 있습니다. 새 배포 실행 API는 제공되지 않습니다.
+            실행은 <span className="font-mono">HUB_ENABLE_DEPLOY=true</span>에서만 허용됩니다.
+            잠겨 있으면 실행 요청은 <span className="font-mono">deploy_disabled</span>로 거부되며
+            위험 작업은 승인과 감사 로그를 거칩니다.
           </p>
         </div>
       </div>
+
+      <Card className="mb-4 p-4">
+        <div className="mb-2 text-sm font-semibold">배포 계획 미리보기</div>
+        <textarea
+          className="h-32 w-full rounded-md border bg-background p-2 font-mono text-xs"
+          placeholder="service.yaml 내용을 JSON으로 붙여넣으세요"
+          aria-label="서비스 정의(JSON)"
+          value={specText}
+          onChange={(e) => setSpecText(e.target.value)}
+        />
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => void onPreview()} disabled={busy}>
+            계획 미리보기
+          </Button>
+          <Button size="sm" onClick={() => void onApply()} disabled={busy}>
+            <ShieldAlert className="h-3.5 w-3.5" />
+            배포 실행
+          </Button>
+        </div>
+
+        {actionError ? (
+          <p className="mt-2 text-xs text-red-500" role="alert">{actionError}</p>
+        ) : null}
+
+        {plan ? (
+          <div className="mt-3 rounded-md border p-3 text-xs">
+            <div className="mb-1 font-semibold">
+              {plan.service} · <span className="font-mono">{plan.result}</span>
+            </div>
+            <ul className="space-y-0.5">
+              {plan.changes.map((c) => (
+                <li key={c.name}>
+                  <span className="font-mono">{c.name}</span>: {c.action}
+                  {c.detail ? ` — ${c.detail}` : ""}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2">
+              {plan.validation.map((v) => (
+                <div key={v.check}>
+                  {v.check}: <span className="font-mono">{v.result}</span>
+                </div>
+              ))}
+            </div>
+            {plan.impact.length > 0 ? (
+              <ul className="mt-2 text-red-500">
+                {plan.impact.map((i) => (
+                  <li key={i.message}>{i.message}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
 
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 

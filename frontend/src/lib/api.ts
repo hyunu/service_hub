@@ -531,6 +531,41 @@ export interface DeploymentListQuery {
   limit?: number;
 }
 
+/** 배포 계획 (REQUIREMENTS §13.2) — 읽기 전용 산출물 */
+export interface DeployPlanChange {
+  name: string;
+  action: string;
+  detail?: string;
+}
+
+export interface DeployPlanValidation {
+  check: string;
+  result: string;
+  detail?: unknown;
+}
+
+export interface DeployPlan {
+  service: string;
+  result: "READY" | "BLOCKED";
+  changes: DeployPlanChange[];
+  ports: { name: string; host_port: number | null; container_port: number; exposure?: string }[];
+  data?: { name: string; purpose: string }[];
+  validation: DeployPlanValidation[];
+  impact: { message: string }[];
+  warnings?: { level: string; message: string }[];
+  runtime_unchanged: boolean;
+  note?: string;
+}
+
+export interface DeployApplyResult {
+  deployment_id: string;
+  service_id: string;
+  status: string;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 /* --------------------------- 이벤트 ------------------------------- */
 
 export interface HubEvent {
@@ -999,18 +1034,43 @@ export function fetchResourceWarnings(signal?: AbortSignal): Promise<ResourceWar
 }
 
 /* ------------------------------------------------------------------ */
-/* 배포 (Phase 3 — 조회 전용)                                           */
+/* 배포 (Phase 3 — 계획 조회 + 승인 실행)                               */
 /* ------------------------------------------------------------------ */
 
 export function fetchDeployments(
   query?: DeploymentListQuery,
   signal?: AbortSignal,
 ): Promise<Deployment[]> {
-  return get<Deployment[]>("/deployments", { ...query }, signal);
+  return get<Deployment[]>("/deployments", { ...query }, signal)
+    .then((rows) => rows.map(normalizeDeployment));
 }
 
 export function fetchDeployment(id: string, signal?: AbortSignal): Promise<Deployment> {
-  return get<Deployment>(`/deployments/${encodeURIComponent(id)}`, undefined, signal);
+  return get<Deployment>(`/deployments/${encodeURIComponent(id)}`, undefined, signal)
+    .then(normalizeDeployment);
+}
+
+/** 백엔드는 `deployment_id`, UI는 `id`를 쓴다 — 한 곳에서 정규화한다. */
+function normalizeDeployment(d: Deployment): Deployment {
+  const raw = d as Deployment & { deployment_id?: string };
+  return { ...d, id: d.id ?? raw.deployment_id ?? "" };
+}
+
+/** 배포 계획 생성 — 컨테이너를 변경하지 않는다 (읽기 전용). */
+export function getDeployPlan(spec: unknown, signal?: AbortSignal): Promise<DeployPlan> {
+  return request<DeployPlan>("/deployments/plan", {
+    method: "POST",
+    body: { service_definition: spec },
+    signal,
+  });
+}
+
+/**
+ * 배포 실행 — 서버가 `HUB_ENABLE_DEPLOY=true` 로 열려 있을 때만 동작한다.
+ * 잠겨 있으면 `deploy_disabled`(503) 오류가 발생한다.
+ */
+export function applyDeploy(spec: unknown): Promise<DeployApplyResult> {
+  return send<DeployApplyResult>("/deployments", "POST", { spec, confirmed: true });
 }
 
 export function fetchDeploymentLogs(
