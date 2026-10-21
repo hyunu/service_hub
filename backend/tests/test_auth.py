@@ -118,10 +118,13 @@ def test_change_password_ok(client):
 
 
 def test_change_password_wrong_current(client):
+    """현재 비밀번호가 틀리면 400 — 401을 쓰면 프론트가 세션 만료로 오인한다."""
     r = mutate(client, "POST", "/api/v1/auth/change-password",
                json={"current_password": "not-the-password", "new_password": "brand-new-pass-456"})
-    assert r.status_code == 401
+    assert r.status_code == 400
     assert r.json()["code"] == "invalid_current_password"
+    # 세션이 유지되어 다른 변경 작업을 계속할 수 있어야 한다
+    assert client.get("/api/v1/auth/session").json()["authenticated"] is True
 
 
 def test_change_password_same_as_current(client):

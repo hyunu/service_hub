@@ -78,7 +78,9 @@ def auth_change_password(body: ChangePasswordRequest, request: Request,
         raise HubError(status_code=404, detail="관리자가 설정되지 않았습니다",
                         code="not_setup")
     if not verify_password(body.current_password, row.value.get("password_hash", "")):
-        raise HubError(status_code=401, detail="현재 비밀번호가 올바르지 않습니다",
+        # 401을 쓰면 프론트엔드의 전역 "세션 만료" 처리(401/403 -> 로그아웃)가
+        # 잘못 동작한다. 세션 자체는 유효하므로 입력 오류(400)로 응답한다.
+        raise HubError(status_code=400, detail="현재 비밀번호가 올바르지 않습니다",
                         code="invalid_current_password")
     if body.current_password == body.new_password:
         raise HubError(status_code=400, detail="새 비밀번호가 현재 비밀번호와 같습니다",
