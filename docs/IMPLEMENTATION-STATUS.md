@@ -121,6 +121,21 @@
   수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
   검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
+### 배포 잠금 해제 (2026-10-22, N100)
+- 사용자 승인 후 `/srv/service-hub/.env`의 `HUB_ENABLE_DEPLOY=false` → `true`로 변경하고
+  백엔드를 재기동했다. 백업: `/srv/service-hub/.env.bak-20261021-172317`.
+- 컨테이너 내부 env 확인: `HUB_ENABLE_DEPLOY=true`.
+- API 검증 (임시 API 키, 검증 후 삭제):
+  - `POST /deployments/plan` → `200 READY` (변경 1건, DB 쓰기 없음)
+  - `POST /deployments {"service_id": ...}` (존재하지 않는 디렉터리) →
+    `422 spec_file_not_found` — **503 deploy_disabled가 아님 = 게이트 통과 확인**
+  - 배포 레코드 증가 없음, 감사 로그 주체 `apikey:<이름>` 기록 확인
+- 기존 컨테이너/볼륨/네트워크 무변경 (md5 동일). hub-backend healthy.
+- **주의(배포 경로 규칙)**: 실행기는 `HUB_DEPLOY_WORKDIR/<service_id>`
+  (= `/srv/services/<service_id>`)에서 `compose.yaml`을 찾는다. 등록 시 입력한
+  `deployment_path`는 표시용 메타데이터이며 실행 경로를 바꾸지 않는다.
+  따라서 실제 배포가 되려면 호스트에 `/srv/services/<service-id>/compose.yaml`이 있어야 한다.
+
 ### N100 서버 배포 검증 (2026-10-22, MCP/API 키 포함)
 - 커밋 `be24ece` 배포: `api_keys` 테이블 자동 생성 확인, 대시보드 200, `GET /apikeys`
   무인증 → `401 unauthorized` 확인.

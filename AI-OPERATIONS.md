@@ -147,6 +147,17 @@ sudo hub admin reset --yes --db /var/lib/docker/volumes/service-hub_hub-data/_da
 4. 초기화 전에 발급한 **API 키는 그대로 유효**하다. 필요 없으면
    대시보드 Settings → API 키에서 폐기한다.
 
+## 7.5 현재 서버 배포 잠금 상태 (2026-10-22 기준)
+
+- N100 서버는 **배포 잠금이 열려 있다** (`HUB_ENABLE_DEPLOY=true`).
+  즉 `hub deploy apply` / `hub_deploy_apply`가 실제 compose 작업을 수행할 수 있다.
+- 실행기는 `HUB_DEPLOY_WORKDIR/<service_id>`(= `/srv/services/<service_id>`)의
+  `compose.yaml`만 사용한다. 등록 시의 `deployment_path`는 표시용이며 실행 경로가 아니다.
+- 따라서 배포 가능한 서비스의 전제: **호스트에 `/srv/services/<service-id>/compose.yaml`이 존재**.
+- 잠금을 다시 닫으려면 `/srv/service-hub/.env`의 값을 `false`로 바꾸고 백엔드를 재기동한다.
+- 열려 있더라도 §0의 절대 금지 작업과 §1의 절차(상태 조회 → 포트 예약 → 검증 → 계획 확인)는
+  그대로 적용된다.
+
 ## 8. AI 에이전트의 허브 연동 (MCP)
 
 AI 코딩 도구는 셸에서 `docker`/`hub`를 직접 호출하는 대신 **MCP 도구**로 허브에 요청할 수 있다.
@@ -178,6 +189,9 @@ MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 
 4. `hub_deploy_plan(spec)` → 결과가 `READY` 인지 확인
 5. `hub_deploy_apply(service_id=..., confirmed=true)` — **잠금이 열려 있을 때만** 실행된다
 6. `hub_deploy_status` / `hub_service_logs` 로 확인
+
+> 배포는 `/srv/services/<service_id>/compose.yaml`에서만 동작한다(§7.5).
+> 등록만으로는 컨테이너가 생기지 않으며, 실제 배포는 이 디렉터리가 준비된 뒤에 수행한다.
 
 ### 8.3 금지/주의
 
