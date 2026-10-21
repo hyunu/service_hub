@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -44,9 +44,9 @@ class EndpointIn(BaseModel):
 
 
 class ServiceCreate(BaseModel):
-    id: str
-    name: str
-    description: str = ""
+    id: str | None = None
+    name: str | None = None
+    description: str | None = None
     category: str = "other"
     repository_url: str | None = None
     branch: str | None = None
@@ -58,6 +58,44 @@ class ServiceCreate(BaseModel):
     tags: list[str] = []
     components: list[ComponentIn] = []
     endpoints: list[EndpointIn] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_service_spec_shape(cls, data):
+        """service.yaml(중첩) 형식도 받는다.
+
+        대시보드 등록 폼과 JSON 붙여넣기는 schemas/service.schema.v1.json 형태
+        ({service, source, deployment, containers, endpoints})로 보낸다.
+        내부 표현(평탄 필드)으로 정규화해 두 형식을 모두 지원한다.
+        """
+        if not isinstance(data, dict):
+            return data
+        meta = data.get("service")
+        if not isinstance(meta, dict):
+            return data
+        out = dict(data)
+        for key in ("id", "name", "description", "category", "version",
+                    "documentation", "tags"):
+            if out.get(key) in (None, "") and meta.get(key) is not None:
+                out[key] = meta[key]
+        source = data.get("source")
+        if isinstance(source, dict):
+            for key in ("repository_url", "branch"):
+                if not out.get(key) and source.get(key):
+                    out[key] = source[key]
+        deployment = data.get("deployment")
+        if isinstance(deployment, dict):
+            if deployment.get("type"):
+                out["deployment_type"] = deployment["type"]
+            if deployment.get("compose_file"):
+                out["compose_file"] = deployment["compose_file"]
+            if not out.get("deployment_path"):
+                out["deployment_path"] = (deployment.get("deployment_path")
+                                          or deployment.get("project_name"))
+        # 스펙의 containers 는 서비스 컴포넌트 정의에 해당한다.
+        if not out.get("components") and data.get("containers"):
+            out["components"] = data["containers"]
+        return out
 
 
 class ServicePatch(BaseModel):
@@ -143,6 +181,12 @@ def list_services(search: str | None = None, status: str | None = None,
 @router.post("", status_code=201)
 def create_service(body: ServiceCreate, db: Session = Depends(get_db),
                    actor: str = Depends(get_read_actor)):
+    if not body.id or not body.name:
+        raise HubError(status_code=422,
+                       detail="서비스 ID와 이름은 필수입니다",
+                       code="missing_fields")
+    if body.description is None:
+        body.description = ""
     _validate(body.id, body.category)
     if db.get(Service, body.id) is not None:
         raise HubError(status_code=409, detail=f"서비스 ID '{body.id}'는 이미 등록되어 있습니다",

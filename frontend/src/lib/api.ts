@@ -800,6 +800,21 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (payload && typeof payload === "object") {
       const p = payload as { detail?: unknown; code?: unknown };
       if (typeof p.detail === "string" && p.detail) detail = p.detail;
+      else if (Array.isArray(p.detail) && p.detail.length > 0) {
+        // FastAPI 검증 오류(detail 배열)를 읽을 수 있는 문장으로 만든다.
+        const parts = (p.detail as unknown[]).slice(0, 5).map((item) => {
+          if (item && typeof item === "object") {
+            const e = item as { loc?: unknown; msg?: unknown };
+            const loc = Array.isArray(e.loc)
+              ? e.loc.filter((x) => x !== "body").map(String).join(".")
+              : "";
+            const msg = typeof e.msg === "string" ? e.msg : String(e.msg ?? "");
+            return loc ? `${loc}: ${msg}` : msg;
+          }
+          return String(item);
+        });
+        detail = `입력값이 올바르지 않습니다 — ${parts.filter(Boolean).join("; ")}`;
+      }
       if (typeof p.code === "string") code = p.code;
     } else if (typeof payload === "string" && payload) {
       detail = payload;

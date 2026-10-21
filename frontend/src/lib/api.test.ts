@@ -76,6 +76,28 @@ describe("api 클라이언트", () => {
     expect(apiErr.message).toBe("이미 사용 중인 포트입니다.");
   });
 
+  it("FastAPI 422 검증 오류(detail 배열)를 읽을 수 있는 메시지로 변환한다", async () => {
+    responder = () =>
+      jsonResponse(
+        {
+          detail: [
+            { type: "missing", loc: ["body", "id"], msg: "Field required" },
+            { type: "missing", loc: ["body", "name"], msg: "Field required" },
+          ],
+        },
+        422,
+      );
+
+    const err = await request("/services", { method: "POST", body: {} }).catch(
+      (e: unknown) => e,
+    );
+    const apiErr = err as ApiError;
+    expect(apiErr.status).toBe(422);
+    expect(apiErr.message).toContain("입력값이 올바르지 않습니다");
+    expect(apiErr.message).toContain("id: Field required");
+    expect(apiErr.message).toContain("name: Field required");
+  });
+
   it("body가 없는 오류 응답에서도 안전하게 실패한다", async () => {
     responder = () =>
       jsonResponse({ detail: "Internal Server Error" }, 500);
