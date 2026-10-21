@@ -11,6 +11,7 @@ from app.db import init_db, reset_db_state
 from app.dependencies import set_gateway
 from app.docker_client import FakeContainer, FakeDockerGateway
 from app.main import create_app
+from app.routers.webauthn import reset_webauthn_state
 from app.security import reset_security_state
 
 
@@ -49,9 +50,11 @@ def settings(tmp_path) -> Settings:
     set_settings(s)
     reset_db_state()
     reset_security_state()
+    reset_webauthn_state()
     yield s
     reset_db_state()
     reset_security_state()
+    reset_webauthn_state()
 
 
 @pytest.fixture()

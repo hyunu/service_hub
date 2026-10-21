@@ -90,6 +90,23 @@ def register_failure(username: str, ip: str) -> None:
     _LOGIN_FAILS.setdefault(_lock_key(username, ip), []).append(time.time())
 
 
+def create_session(username: str) -> tuple[str, str]:
+    """새 세션을 발급한다 — (token, csrf) 반환.
+
+    패스워드 로그인과 WebAuthn 로그인 모두 이 헬퍼를 공유한다.
+    """
+    token = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(24)
+    with _SESSION_LOCK:
+        SESSIONS[token] = {"username": username, "csrf": csrf, "created_at": _utcnow()}
+    return token, csrf
+
+
+def lockout_minutes() -> int:
+    """잠금 지속 시간(분) — 오류 메시지/문서에서 공유한다."""
+    return _LOCK_SECONDS // 60
+
+
 def login(db: Session, username: str, password: str, ip: str) -> tuple[str, str]:
     if is_locked(username, ip):
         raise HubError(status_code=429,
@@ -102,11 +119,7 @@ def login(db: Session, username: str, password: str, ip: str) -> tuple[str, str]
         raise HubError(status_code=401, detail="사용자명 또는 비밀번호가 올바르지 않습니다",
                             code="invalid_credentials")
     _LOGIN_FAILS.pop(_lock_key(username, ip), None)
-    token = secrets.token_urlsafe(32)
-    csrf = secrets.token_urlsafe(24)
-    with _SESSION_LOCK:
-        SESSIONS[token] = {"username": username, "csrf": csrf, "created_at": _utcnow()}
-    return token, csrf
+    return create_session(username)
 
 
 def logout(token: str | None) -> None:

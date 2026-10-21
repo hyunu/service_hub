@@ -19,6 +19,7 @@ from .routers import events as events_router
 from .routers import ports as ports_router
 from .routers import resources as resources_router
 from .routers import system as system_router
+from .routers import webauthn as webauthn_router
 from .routers.services import router as services_router
 from .security import HubError
 
@@ -76,6 +77,7 @@ def create_app(settings: Settings | None = None,
 
     p = API_PREFIX
     app.include_router(auth_router.router, prefix=f"{p}")
+    app.include_router(webauthn_router.router, prefix=f"{p}")
     app.include_router(system_router.router, prefix=f"{p}")
     app.include_router(services_router, prefix=f"{p}")
     app.include_router(containers_router.router, prefix=f"{p}")

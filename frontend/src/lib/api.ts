@@ -879,6 +879,16 @@ export async function setupAdmin(payload: SetupPayload): Promise<SessionInfo | n
   return null;
 }
 
+export interface ChangePasswordPayload {
+  current_password: string;
+  new_password: string;
+}
+
+/** 관리자 비밀번호 변경 — 현 비밀번호 확인 후 변경 (인증 + CSRF 필요). */
+export function changePassword(payload: ChangePasswordPayload): Promise<{ ok: boolean }> {
+  return send<{ ok: boolean }>("/auth/change-password", "POST", payload);
+}
+
 /* ------------------------------------------------------------------ */
 /* 시스템                                                              */
 /* ------------------------------------------------------------------ */

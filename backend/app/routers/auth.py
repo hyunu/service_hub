@@ -6,9 +6,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..models import Setting, utcnow as _utcnow_str
 from ..security import (SESSION_COOKIE, HubError, admin_exists, create_admin,
-                        get_session_info, login as do_login, logout as do_logout,
-                        require_auth)
+                        get_read_actor, get_session_info, hash_password,
+                        login as do_login, logout as do_logout, require_auth,
+                        verify_password)
+from ..services.events import record_audit
 
 router = APIRouter(tags=["auth"])
 
@@ -21,6 +24,11 @@ class SetupRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 @router.get("/setup/status")
@@ -53,6 +61,40 @@ def auth_login(body: LoginRequest, request: Request, db: Session = Depends(get_d
     out = JSONResponse(resp)
     out.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="strict", path="/")
     return out
+
+
+@router.post("/auth/change-password")
+def auth_change_password(body: ChangePasswordRequest, request: Request,
+                         db: Session = Depends(get_db),
+                         actor: str = Depends(get_read_actor),
+                         _auth: dict = Depends(require_auth)):
+    """현 비밀번호를 확인한 뒤 관리자 비밀번호를 변경한다.
+
+    보안: 인증 세션 + CSRF (require_auth) 필요. 감사 로그에 기록하며,
+    기존 세션은 유효하도록 유지한다 (다른 기기에서의 접근은 비밀번호 변경으로 차단).
+    """
+    row = db.get(Setting, "admin")
+    if row is None:
+        raise HubError(status_code=404, detail="관리자가 설정되지 않았습니다",
+                        code="not_setup")
+    if not verify_password(body.current_password, row.value.get("password_hash", "")):
+        raise HubError(status_code=401, detail="현재 비밀번호가 올바르지 않습니다",
+                        code="invalid_current_password")
+    if body.current_password == body.new_password:
+        raise HubError(status_code=400, detail="새 비밀번호가 현재 비밀번호와 같습니다",
+                        code="same_password")
+
+    # JSON 컬럼은 내부 변경이 dirty로 추적되지 않으므로 반드시 재할당한다.
+    row.value = {**row.value,
+                 "password_hash": hash_password(body.new_password),
+                 "password_changed_at": _utcnow_str()}
+    row.updated_at = _utcnow_str()
+    db.flush()
+    record_audit(db, actor, "auth.password_change",
+                 target=row.value.get("username"),
+                 detail={"ip": request.client.host if request.client else "unknown"})
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/auth/logout")

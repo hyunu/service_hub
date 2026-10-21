@@ -49,17 +49,28 @@ function Brand({ compact }: { compact?: boolean }) {
   );
 }
 
-/** 데스크톱 고정 사이드바 */
-export function Sidebar() {
+/** 데스크톱 고정 사이드바 — ``collapsed`` 면 아이콘만 남는 좁은 폭으로 접힘 */
+export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
-      <Brand />
+    <aside
+      className={cn(
+        "hidden shrink-0 flex-col border-r border-border bg-card lg:flex",
+        "transition-[width] duration-200 ease-out",
+        collapsed ? "w-14" : "w-60",
+      )}
+      aria-label="주 메뉴"
+    >
+      <Brand compact={collapsed} />
       <div className="flex-1 overflow-y-auto py-1">
-        <NavList />
+        <NavList collapsed={collapsed} />
       </div>
-      <div className="border-t border-border px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-        내부망 전용 · Phase 1 (읽기 전용)
-      </div>
+      {!collapsed ? (
+        <div className="border-t border-border px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
+          내부망 전용 · Phase 1 (읽기 전용)
+        </div>
+      ) : (
+        <div className="border-t border-border" />
+      )}
     </aside>
   );
 }

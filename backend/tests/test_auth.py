@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from app.security import mask_env_dict, masked
+from conftest import mutate
 
 ADMIN = {"username": "admin", "password": "secure-pass-123"}
 
@@ -94,6 +95,64 @@ def test_secret_masking():
     assert masked_env["DB_PASSWORD"] != "p1"
     assert masked_env["API_TOKEN"] != "t1"
     assert masked_env["PLAIN"] == "ok"
+
+
+def test_change_password_ok(client):
+    """현 비밀번호 확인 후 변경 성능: 변경 후 새 비밀번호로 로그인, 구 비밀번호는 거부."""
+    r = mutate(client, "POST", "/api/v1/auth/change-password",
+               json={"current_password": "secure-pass-123", "new_password": "brand-new-pass-456"})
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+
+    client.post("/api/v1/auth/logout")
+    # 새 비밀번호로 로그인 성공
+    r2 = client.post("/api/v1/auth/login",
+                     json={"username": "admin", "password": "brand-new-pass-456"})
+    assert r2.status_code == 200, r2.text
+    # 구 비밀번호는 거부
+    client.post("/api/v1/auth/logout")
+    r3 = client.post("/api/v1/auth/login",
+                     json={"username": "admin", "password": "secure-pass-123"})
+    assert r3.status_code == 401
+    assert r3.json()["code"] == "invalid_credentials"
+
+
+def test_change_password_wrong_current(client):
+    r = mutate(client, "POST", "/api/v1/auth/change-password",
+               json={"current_password": "not-the-password", "new_password": "brand-new-pass-456"})
+    assert r.status_code == 401
+    assert r.json()["code"] == "invalid_current_password"
+
+
+def test_change_password_same_as_current(client):
+    r = mutate(client, "POST", "/api/v1/auth/change-password",
+               json={"current_password": "secure-pass-123", "new_password": "secure-pass-123"})
+    assert r.status_code == 400
+    assert r.json()["code"] == "same_password"
+
+
+def test_change_password_requires_auth(anon_client):
+    anon_client.post("/api/v1/setup/admin", json=ADMIN)
+    anon_client.post("/api/v1/auth/logout")
+    r = anon_client.post("/api/v1/auth/change-password",
+                         json={"current_password": "x", "new_password": "brand-new-pass-456"})
+    assert r.status_code == 401
+    assert r.json()["code"] == "unauthorized"
+
+
+def test_change_password_requires_csrf(client):
+    """CSRF 토큰 없이 비밀번호를 변경할 수 없어야 한다."""
+    r = client.post("/api/v1/auth/change-password",
+                    json={"current_password": "secure-pass-123", "new_password": "brand-new-pass-456"},
+                    headers={"X-CSRF-Token": "forged-token"})
+    assert r.status_code == 403
+    assert r.json()["code"] == "csrf"
+
+
+def test_change_password_weak_rejected(client):
+    r = mutate(client, "POST", "/api/v1/auth/change-password",
+               json={"current_password": "secure-pass-123", "new_password": "short"})
+    assert r.status_code == 422
 
 
 def test_no_arbitrary_shell_endpoint(anon_client):

@@ -8,6 +8,7 @@ import {
   isApiError,
   type SessionInfo,
 } from "../lib/api";
+import { loginWithPasskey } from "../lib/webauthn";
 
 export type AuthStatus = "loading" | "setup" | "anonymous" | "authenticated";
 
@@ -16,6 +17,7 @@ interface AuthContextValue {
   session: SessionInfo | null;
   refresh: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
+  passkeyLogin: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   completeSetup: (username: string, password: string) => Promise<void>;
 }
@@ -70,6 +72,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [apply],
   );
 
+  const passkeyLogin = React.useCallback(
+    async (username: string) => {
+      const s = await loginWithPasskey(username);
+      apply(s);
+    },
+    [apply],
+  );
+
   const logout = React.useCallback(async () => {
     try {
       await apiLogout();
@@ -94,8 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = React.useMemo(
-    () => ({ status, session, refresh, login, logout, completeSetup }),
-    [status, session, refresh, login, logout, completeSetup],
+    () => ({ status, session, refresh, login, passkeyLogin, logout, completeSetup }),
+    [status, session, refresh, login, passkeyLogin, logout, completeSetup],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

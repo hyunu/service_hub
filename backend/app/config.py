@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     port_scan_max: int = 8999
     protected_ports: list[int] = [22]
 
+    # WebAuthn (생체인식/패스워드리스) — 보안 컨텍스트(HTTPS)가 필요하다.
+    # 비어 있으면 기능이 꺼진다 (평문 HTTP에서는 브라우저가 WebAuthn을 차단한다).
+    webauthn_rp_id: str = ""        # 예: n100-pve-dev.tail7d413d.ts.net
+    webauthn_origin: str = ""       # 예: https://n100-pve-dev.tail7d413d.ts.net
+    webauthn_timeout_ms: int = 60000
+
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @property
@@ -52,6 +58,11 @@ class Settings(BaseSettings):
     @property
     def loopback_only(self) -> bool:
         return self.bind in ("127.0.0.1", "localhost", "::1")
+
+    @property
+    def webauthn_enabled(self) -> bool:
+        """rp_id와 origin이 모두 있어야 WebAuthn을 켠다 (HTTPS 전제)."""
+        return bool(self.webauthn_rp_id and self.webauthn_origin)
 
     def deploy_gate(self) -> tuple[bool, str]:
         """배포 허용 여부와 사유. 잠금이 기본값이다 (AGENTS.md 규칙 #2)."""

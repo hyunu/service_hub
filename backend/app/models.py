@@ -11,7 +11,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
 
-def utcnow() -> datetime:
+def utcnow() -> str:
+    """ISO 8601 UTC 타임스탬프 (REQUIREMENTS §6) — String 컬럼 기본값용."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -192,3 +193,22 @@ class Setting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+
+class WebAuthnCredential(Base):
+    """등록된 패스워드리스 자격 증명 (생체인식 로그인용).
+
+    공개키만 저장한다 — 비밀키/생체 정보는 서버에 저장되지 않는다 (WebAuthn 규격).
+    """
+    __tablename__ = "webauthn_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    credential_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    public_key: Mapped[str] = mapped_column(Text)          # base64url
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    user_handle: Mapped[str] = mapped_column(String(128))  # base64url(user_id)
+    label: Mapped[str] = mapped_column(String(120), default="패스워드 키")
+    device_type: Mapped[str | None] = mapped_column(String(32))   # singleDevice/multiDevice
+    backed_up: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    last_used_at: Mapped[str | None] = mapped_column(String(40))
