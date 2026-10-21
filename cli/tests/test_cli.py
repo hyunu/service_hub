@@ -208,3 +208,31 @@ def test_packaged_schema_in_sync_with_repo_schema():
     canonical = SCHEMA.read_text(encoding="utf-8")
     assert json.loads(packaged) == json.loads(canonical), (
         "cli/hub_cli/schemas/ 복사본이 저장소 루트 schemas/와 다릅니다. 동기화하세요.")
+
+
+def test_service_new_creates_layout(tmp_path, capsys):
+    code = main(["service", "new", "demo-app", "--dir", str(tmp_path)])
+    assert code is None or code == 0
+    assert (tmp_path / "demo-app" / "service.yaml").exists()
+    assert (tmp_path / "demo-app" / "compose.yaml").exists()
+    assert (tmp_path / "demo-app" / ".env.example").exists()
+    assert (tmp_path / "demo-app" / ".gitignore").exists()
+
+
+def test_service_new_then_validate_roundtrip(tmp_path, capsys):
+    main(["service", "new", "demo-app", "--dir", str(tmp_path)])
+    # 생성한 service.yaml은 스키마 검증을 통과해야 한다
+    main(["service", "validate", str(tmp_path / "demo-app")])
+
+
+def test_service_new_rejects_existing(tmp_path, capsys):
+    (tmp_path / "demo-app").mkdir()
+    with pytest.raises(SystemExit) as exc:
+        main(["service", "new", "demo-app", "--dir", str(tmp_path)])
+    assert exc.value.code == 4
+
+
+def test_service_new_rejects_bad_id(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["service", "new", "Bad_ID", "--dir", str(tmp_path)])
+    assert exc.value.code == 4

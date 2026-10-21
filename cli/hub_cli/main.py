@@ -217,6 +217,45 @@ def cmd_service_validate(args: argparse.Namespace) -> None:
          lambda d: print(f"검증 통과: {path} (service_id={d['service_id']})"))
 
 
+def cmd_service_new(args: argparse.Namespace) -> None:
+    """표준 서비스 디렉터리 골격을 생성한다 (시크릿 값 없음)."""
+    import re
+    service_id = args.service_id
+    if not re.match(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$", service_id):
+        raise CliError(f"서비스 ID 형식이 올바르지 않습니다: {service_id!r}", EXIT_REJECTED)
+    root = Path(args.dir) / service_id
+    if root.exists():
+        raise CliError(f"이미 존재하는 디렉터리입니다: {root}", EXIT_REJECTED)
+    display = args.name or service_id
+    for sub in ("config", "data", "logs"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+        (root / sub / ".gitkeep").write_text("", encoding="utf-8")
+    (root / "service.yaml").write_text(
+        "schema_version: 1\n"
+        "service:\n"
+        f"  id: {service_id}\n"
+        f"  name: {display}\n"
+        f"  description: {display} 서비스 (설명을 채우세요)\n"
+        f"  category: {args.category}\n"
+        '  version: "0.1.0"\n'
+        "deployment:\n"
+        "  type: docker-compose\n"
+        "  compose_file: compose.yaml\n", encoding="utf-8")
+    (root / "compose.yaml").write_text(
+        "services:\n  app:\n    image: " + service_id + ":latest\n"
+        "    restart: unless-stopped\n    ports:\n"
+        '      - "127.0.0.1:8000:3000"\n', encoding="utf-8")
+    (root / ".env.example").write_text(
+        f"# {display} 환경 변수 (이름만)\nEXAMPLE_VAR=\n", encoding="utf-8")
+    (root / ".gitignore").write_text(".env\ndata/\nlogs/\n", encoding="utf-8")
+    result = {"created": str(root), "service_id": service_id}
+    emit(result, args.json,
+         lambda d: print(f"생성됨: {d['created']}\n"
+                         f"  service_id: {d['service_id']}\n"
+                         "  다음: service.yaml 설명을 채우고 "
+                         "`hub service validate`로 검증하세요."))
+
+
 def _schema_path() -> Path | None:
     """패키지 내부 스키마를 우선하고, 소스 체크아웃에서는 저장소 루트도 탐색한다."""
     pkg = Path(__file__).resolve().parent / "schemas" / "service.schema.v1.json"
@@ -402,6 +441,13 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("path", help="service.yaml 파일 또는 서비스 디렉터리")
     sv.add_argument("--json", action="store_true")
     sv.set_defaults(func=cmd_service_validate)
+    sn = svc.add_parser("new", help="표준 서비스 디렉터리 골격 생성")
+    sn.add_argument("service_id")
+    sn.add_argument("--dir", default=".", help="생성 위치 (기본 현재 디렉터리)")
+    sn.add_argument("--name", default=None)
+    sn.add_argument("--category", default="other")
+    sn.add_argument("--json", action="store_true")
+    sn.set_defaults(func=cmd_service_new)
 
     prt = sub.add_parser("port", help="포트 관리").add_subparsers(dest="cmd", required=True)
     pl = prt.add_parser("list", help="포트 현황")
