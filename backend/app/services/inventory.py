@@ -7,6 +7,10 @@
   unmanaged — 어떤 서비스 컴포넌트에도 매칭되지 않음 (hub 자체 제외)
   missing   — 등록된 필수 컴포넌트에 대응 컨테이너가 없음 (서비스 판정용)
   unknown   — Docker 연결 불가로 판정 불가 (정상으로 취급하지 않음)
+
+스냅샷에 더 이상 없는 컨테이너의 행은 정리한다 — 재기동/삭제된 이전 인스턴스가
+누적되면 대시보드에 같은 이름이 중복 표시된다. Docker 연결이 불가한 경우(snapshot=None)
+에는 어떤 행도 삭제하지 않는다.
 """
 from __future__ import annotations
 
@@ -141,6 +145,33 @@ def sync_inventory(db: Session, gateway: DockerGateway) -> dict:
         row.service_id = service.id
         row.component_name = component.name
 
+    # 사라진 컨테이너 정리 — 이전 인스턴스의 행이 누적되면 대시보드에 같은 이름이
+    # 중복 표시된다(예: 재기동된 hub-backend/hub-frontend). 스냅샷에 없는 행을 정리한다.
+    #  - 허브 자기 자신/미관리 컨테이너: 행 삭제 (컨테이너가 없으므로)
+    #  - 서비스 컴포넌트 행: 같은 컴포넌트의 살아있는 컨테이너가 있으면 행 삭제,
+    #    없으면 "missing"(누락)으로 표시 — 등록 정보는 유지한다.
+    seen_ids = {snap.container_id for snap in snaps}
+    rows_now = list(db.execute(select(Container)).scalars())
+    live_slots = {(r.service_id, r.component_name) for r in rows_now
+                  if r.container_id in seen_ids}
+    for row in rows_now:
+        if row.container_id in seen_ids:
+            continue
+        if row.service_id is None:
+            db.delete(row)
+        elif (row.service_id, row.component_name) in live_slots:
+            db.delete(row)
+        else:
+            row.management_state = "missing"
+            row.state = "exited"
+            row.status_text = "컨테이너 없음(삭제됨)"
+            row.observed_at = now
+
+    # 사라진 컨테이너를 가리키는 수동 연결(assignment)도 정리한다.
+    for a in list(db.execute(select(ContainerAssignment)).scalars()):
+        if a.container_id not in seen_ids:
+            db.delete(a)
+
     # 서비스 차원 판정: 등록 정보와 실제 상태 비교 (missing/stopped 반영)
     for svc in services:
         rows = list(db.execute(select(Container).where(Container.service_id == svc.id)).scalars())
@@ -158,7 +189,7 @@ def compute_service_status(svc: Service, rows: list[Container]) -> str:
     running = {r.component_name for r in rows
                if r.management_state == "managed" and r.state == "running"}
     required = {c.name for c in comps if c.required}
-    present = {r.component_name for r in rows}
+    present = {r.component_name for r in rows if r.management_state != "missing"}
     if required:
         if required.issubset(running):
             return "healthy"
