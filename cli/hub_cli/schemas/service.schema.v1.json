@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "N100 Service Hub service definition (schema_version 1)",
+  "type": "object",
+  "required": ["schema_version", "service", "deployment"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "service": {
+      "type": "object",
+      "required": ["id", "name", "description", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
+          "description": "영문 소문자/숫자/하이픈. 중복 불가."
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "category": {
+          "type": "string",
+          "enum": ["web", "backend", "database", "ai", "automation", "media", "dev", "infra", "other"]
+        },
+        "version": { "type": "string" },
+        "documentation": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository_url": { "type": "string" },
+        "branch": { "type": "string" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["type", "compose_file"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["docker-compose"] },
+        "compose_file": { "type": "string", "minLength": 1 },
+        "project_name": { "type": "string" }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "exposure", "container", "container_port"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["http", "https", "tcp", "udp", "grpc"] },
+          "exposure": { "type": "string", "enum": ["proxy", "host", "internal"] },
+          "hostname": { "type": "string", "description": "exposure=proxy일 때 필요" },
+          "host_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "container": { "type": "string", "minLength": 1 },
+          "container_port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "exposure": { "const": "proxy" } } },
+            "then": { "required": ["hostname"] }
+          },
+          {
+            "if": { "properties": { "exposure": { "const": "host" } } },
+            "then": { "required": ["host_port"] }
+          }
+        ]
+      }
+    },
+    "containers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "enum": ["frontend", "backend", "worker", "database", "cache", "proxy", "other"] },
+          "required": { "type": "boolean", "default": true },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memory_limit_mb": { "type": "integer", "minimum": 16 },
+        "cpu_limit": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "purpose"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "purpose": { "type": "string" },
+          "backup_required": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "healthcheck_required": { "type": "boolean", "default": true },
+        "backup_required": { "type": "boolean", "default": false },
+        "restart_policy": { "type": "string", "enum": ["no", "always", "unless-stopped", "on-failure"] }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "시크릿 값 금지. 참조/정책만 허용.",
+      "properties": {
+        "expose_database": { "type": "boolean", "default": false },
+        "required_env": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "description": ".env.example에 있어야 하는 환경 변수 이름 목록 (값 금지)"
+        }
+      }
+    }
+  }
+}
