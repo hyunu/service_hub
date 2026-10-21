@@ -39,6 +39,12 @@
     공개키만 저장, 챌린지 1회용 5분 TTL, 로그인 잠금(5회/5분) 공유.
     로그인 화면 "생체인식으로 로그인" + Settings > 보안 탭 키 관리.
   - 사이드바 접기 + 화면 세로 중앙 원형 토글 버튼(localStorage 유지).
+- **컨테이너 수동 그룹핑 (2026-10-21)**:
+  - `container_assignments` 테이블: 명시적 연결을 주기 동기화(이름 자동 매칭)보다 우선 적용.
+  - `POST /orphans/attach`(다중 일괄), `POST /containers/{id}/detach`,
+    `POST /services/{id}/auto-attach`(compose 프로젝트 단위). 모두 DB 연결만, 런타임 무변경.
+  - 수동 컴포넌트는 required=False, 해제 시 자동 생성 컴포넌트를 정리해 자동매칭 부활 방지.
+  - UI: Containers 다중 선택 툴바, ServiceDetail 수동/자동 배지·해제·프로젝트 일괄 연결.
   - HTTPS: Tailscale Serve로 `https://n100-pve-dev.tail7d413d.ts.net` 노출
     (Let's Encrypt 인증서). 기존 평문 `http://100.85.245.79:8421` 유지.
 
@@ -46,10 +52,10 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **110 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **120 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **1 passed (실제 Docker 데몬 사용, skip 아님)** |
 | CLI | `cd cli && uv run pytest` | **21 passed** (Phase 1: 14) |
-| 프론트엔드 테스트 | `npm run test --prefix frontend` | **45 passed (9 files)** (Phase 1: 30) |
+| 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
 | 프론트엔드 빌드 | `npm run build --prefix frontend` | **성공** (tsc 0 errors) |
 | 배포 게이트 기본값 | `Settings().deploy_gate()` | **`(False, ...)` — 기본 잠금 확인** |
 
@@ -79,6 +85,9 @@
 - **CDP CTAP2 가상 인증기로 패스키 등록 → 로그아웃 → 패스키 로그인 → 세션 발급**까지 검증.
   검증용 자격증명은 삭제해 잔여 0으로 정리했다.
 - 기존 assetnest 컨테이너 4개 ID는 배포 전후 동일(무변경).
+- 수동 그룹핑 실서버 검증: UI에서 미관리 컨테이너 2개 선택 → 서비스 연결 → 상세에서
+  수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
+  검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
 ## 알려진 문제 / 확인 필요
 - **N100 배포 검증 범위** — 2026-10-21 배포 후 인증/UI/WebAuthn/HTTPS 경로는 N100에서
@@ -98,5 +107,4 @@
 ## 다음 실행 단계
 - 배포 실행 검증은 `HUB_ENABLE_DEPLOY` 잠금 해제 승인 후, 사용하지 않는 테스트 서비스로
   `hub deploy plan → apply → status → 실제 상태 재조회` 순서로 수행한다.
-- 남은 UX 요청: 컨테이너 수동 그룹핑(여러 컨테이너를 한 서비스로 묶기) — 현재는
-  `POST /orphans/{id}/attach`로 1개씩 연결만 가능하다.
+- 다음 UX 후보: 서비스 상세에서 컴포넌트를 직접 편집(그룹핑 결과를 서비스 정의로 승격).
