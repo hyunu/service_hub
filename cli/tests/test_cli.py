@@ -16,9 +16,23 @@ SCHEMA = REPO / "schemas" / "service.schema.v1.json"
 
 class _Stub(BaseHTTPRequestHandler):
     routes: dict[str, tuple[int, dict]] = {}
+    post_routes: dict[str, tuple[int, dict]] = {}
 
     def do_GET(self):  # noqa: N802
         code, body = self.routes.get(self.path, (404, {"detail": "not found", "code": "nf"}))
+        payload = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_POST(self):  # noqa: N802
+        _Stub.last_post_path = self.path
+        length = int(self.headers.get("Content-Length") or 0)
+        _Stub.last_post_body = self.rfile.read(length).decode() if length else ""
+        code, body = self.post_routes.get(self.path,
+                                          (404, {"detail": "not found", "code": "nf"}))
         payload = json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -34,8 +48,10 @@ class _Stub(BaseHTTPRequestHandler):
 def stub_server():
     servers = []
 
-    def start(routes: dict[str, tuple[int, dict]]):
-        handler = type("Handler", (_Stub,), {"routes": routes})
+    def start(routes: dict[str, tuple[int, dict]],
+              post_routes: dict[str, tuple[int, dict]] | None = None):
+        handler = type("Handler", (_Stub,), {
+            "routes": routes, "post_routes": post_routes or {}})
         srv = HTTPServer(("127.0.0.1", 0), handler)
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
@@ -186,16 +202,18 @@ def test_port_available_json(stub_server, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["candidates"] == [8001, 8002, 8003]
 
 
-def test_deploy_plan_disabled_message(stub_server, monkeypatch, tmp_path):
+def test_deploy_plan_renders(stub_server, monkeypatch, tmp_path, capsys):
     pytest.importorskip("yaml")
     f = tmp_path / "service.yaml"
-    f.write_text("schema_version: 1\nservice: {}\n", encoding="utf-8")
-    url = stub_server({"/api/v1/deployments/plan": (503,
-        {"detail": "deployments disabled (Phase 3)", "code": "deploy_disabled"})})
+    f.write_text("schema_version: 1\nservice: {id: demo-app}\n", encoding="utf-8")
+    url = stub_server({}, post_routes={
+        "/api/v1/deployments/plan": (200, {
+            "service": "demo-app", "result": "READY", "changes": [], "ports": [],
+            "validation": [], "impact": [], "runtime_unchanged": True})})
     monkeypatch.setenv("HUB_URL", url)
-    with pytest.raises(SystemExit) as exc:
-        main(["deploy", "plan", str(f)])
-    assert exc.value.code == 4
+    main(["deploy", "plan", str(f)])
+    out = capsys.readouterr().out
+    assert "demo-app" in out and "READY" in out
 
 
 def test_schema_file_exists_and_is_valid_json():
@@ -236,3 +254,35 @@ def test_service_new_rejects_bad_id(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["service", "new", "Bad_ID", "--dir", str(tmp_path)])
     assert exc.value.code == 4
+
+
+def test_deploy_apply_requires_yes(tmp_path, monkeypatch, capsys):
+    # --yes 없이는 백엔드 호출조차 하지 않고 거부한다 (컨테이너 변경 방지)
+    f = tmp_path / "service.yaml"
+    f.write_text("schema_version: 1\n", encoding="utf-8")
+    monkeypatch.setenv("HUB_URL", "http://127.0.0.1:1/api/v1")
+    with pytest.raises(SystemExit) as exc:
+        main(["deploy", "apply", "demo-app"])
+    assert exc.value.code == 4
+
+
+def test_deploy_apply_with_yes_posts(stub_server, monkeypatch, capsys):
+    url = stub_server({}, post_routes={
+        "/api/v1/deployments": (202, {"deployment_id": "dep-1", "service_id": "demo-app",
+                                      "status": "succeeded", "error": None})})
+    monkeypatch.setenv("HUB_URL", url)
+    main(["deploy", "apply", "demo-app", "--yes"])
+    out = capsys.readouterr().out
+    assert "dep-1" in out and "succeeded" in out
+    assert json.loads(_Stub.last_post_body)["service_id"] == "demo-app"
+    assert json.loads(_Stub.last_post_body)["confirmed"] is True
+
+
+def test_deploy_status_renders(stub_server, monkeypatch, capsys):
+    url = stub_server({"/api/v1/deployments/dep-1": (200, {
+        "deployment_id": "dep-1", "service_id": "demo-app", "status": "succeeded",
+        "steps": []})})
+    monkeypatch.setenv("HUB_URL", url)
+    main(["deploy", "status", "dep-1"])
+    out = capsys.readouterr().out
+    assert "dep-1" in out and "succeeded" in out

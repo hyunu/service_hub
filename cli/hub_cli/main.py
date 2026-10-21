@@ -377,18 +377,49 @@ def cmd_deploy_plan(args: argparse.Namespace) -> None:
                 "현재는 `hub service validate`로 정의 파일 검증만 가능합니다.", EXIT_REJECTED
             ) from exc
         raise
-    emit(data, args.json, lambda d: print(json.dumps(d, ensure_ascii=False, indent=2)))
+    def render(d: dict[str, Any]) -> None:
+        print(f"Service: {d.get('service')}")
+        print("Changes:")
+        for c in d.get("changes", []):
+            print(f"  {c.get('name')}: {c.get('action')} — {c.get('detail', '')}")
+        port_changes = [p for p in d.get("ports", []) if p.get("host_port")]
+        print("Ports:")
+        print("  No host port changes" if not port_changes
+              else "\n".join(f"  {p['host_port']} -> {p['name']}" for p in port_changes))
+        print("Validation:")
+        for v in d.get("validation", []):
+            print(f"  {v.get('check')}: {v.get('result')}")
+        for i in d.get("impact", []):
+            print(f"  IMPACT: {i.get('message')}")
+        for w in d.get("warnings", []):
+            print(f"  [{w.get('level')}] {w.get('message')}")
+        print(f"Result: {d.get('result')}")
+
+    emit(data, args.json, render)
 
 
 def cmd_deploy_apply(args: argparse.Namespace) -> None:
+    # 배포는 컨테이너를 변경한다 — 사전 확인 없이는 실행하지 않는다 (AI-OPERATIONS §1.7).
+    if not args.yes:
+        raise CliError(
+            "배포는 컨테이너를 변경합니다. `hub deploy plan <path>`로 계획을 확인한 뒤 "
+            "--yes 를 붙여 다시 실행하세요.", EXIT_REJECTED)
     try:
         data = api("/deployments", method="POST",
-                   payload={"service_id": args.service_id, "confirmed": args.yes})
+                   payload={"service_id": args.service_id, "confirmed": True})
     except CliError as exc:
         if exc.exit_code == EXIT_REJECTED:
             raise CliError(f"배포가 거부되었습니다: {exc}", exc.exit_code) from exc
         raise
-    emit(data, args.json, lambda d: print(f"배포 요청됨: {d.get('deployment_id')}"))
+
+    def render(d: dict[str, Any]) -> None:
+        print(f"배포 ID : {d.get('deployment_id')}")
+        print(f"상태    : {d.get('status')}")
+        if d.get("error"):
+            print(f"오류    : {d['error']}")
+        print("실제 상태는 `hub deploy status <id>` 및 `hub status`로 재확인하세요.")
+
+    emit(data, args.json, render)
 
 
 def cmd_deploy_status(args: argparse.Namespace) -> None:
