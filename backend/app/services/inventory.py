@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..docker_client import ContainerSnapshot, DockerGateway
-from ..models import Container, Service, ServiceComponent
+from ..models import Container, ContainerAssignment, Service, ServiceComponent
 from .events import record_event
 
 
@@ -56,6 +56,10 @@ def sync_inventory(db: Session, gateway: DockerGateway) -> dict:
     """
     services = list(db.execute(select(Service)).scalars())
     comp_map = {s.id: list(s.components) for s in services}
+    service_by_id = {s.id: s for s in services}
+    # 수동 그룹핑(명시적 연결) — 이름 매칭보다 우선한다.
+    assignments = {a.container_id: a
+                   for a in db.execute(select(ContainerAssignment)).scalars()}
 
     snaps = gateway.list_containers()
     if snaps is None:
@@ -95,6 +99,16 @@ def sync_inventory(db: Session, gateway: DockerGateway) -> dict:
             row.management_state = "managed"
             row.service_id = None
             row.component_name = "hub-self"
+            continue
+
+        # 1) 수동 그룹핑(명시적 연결)이 있으면 그것을 신뢰한다.
+        #    이름이 바뀌거나 다른 서비스와 겹쳐도 연결이 유지된다.
+        assignment = assignments.get(snap.container_id)
+        if assignment is not None and assignment.service_id in service_by_id:
+            row.service_id = assignment.service_id
+            row.component_name = assignment.component_name
+            row.management_state = "managed" if snap.state == "running" else "stopped"
+            matched[snap.container_id] = (assignment.service_id, assignment.component_name)
             continue
 
         component = None
@@ -145,11 +159,14 @@ def compute_service_status(svc: Service, rows: list[Container]) -> str:
                if r.management_state == "managed" and r.state == "running"}
     required = {c.name for c in comps if c.required}
     present = {r.component_name for r in rows}
-    if required and required.issubset(running):
-        return "healthy"
+    if required:
+        if required.issubset(running):
+            return "healthy"
+        return "warning" if running else ("stopped" if present else "missing")
+    # 필수 컴포넌트가 없는 서비스(수동 그룹핑만 있는 경우)는 실행 중이면 healthy.
     if running:
-        return "warning"
-    if present & {c.name for c in comps}:
+        return "healthy"
+    if present:
         return "stopped"
     return "missing"
 

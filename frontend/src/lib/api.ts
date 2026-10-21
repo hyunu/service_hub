@@ -306,6 +306,8 @@ export interface ContainerListItem {
   observed_at: string | null;
   cpu_percent?: number | null;
   memory_mb?: number | null;
+  /** 수동 그룹핑(container_assignments)으로 연결되었는가 */
+  manual?: boolean;
 }
 
 export interface ContainerMount {
@@ -1010,6 +1012,56 @@ export function fetchOrphans(signal?: AbortSignal): Promise<OrphanItem[]> {
 
 export function attachOrphan(cid: string, body: AttachPayload): Promise<unknown> {
   return send<unknown>(`/orphans/${encodeURIComponent(cid)}/attach`, "POST", body);
+}
+
+export interface BulkAttachPayload {
+  service_id: string;
+  container_ids: string[];
+  /** 지정하면 선택한 컨테이너를 이 컴포넌트 하나로 묶는다. */
+  component_name?: string | null;
+}
+
+export interface AttachResultRow {
+  container_id: string;
+  name?: string;
+  ok: boolean;
+  reason?: string;
+  service_id?: string;
+  component?: string;
+}
+
+export interface BulkAttachResult {
+  service_id: string;
+  attached: number;
+  skipped: number;
+  results: AttachResultRow[];
+  runtime_unchanged?: boolean;
+  note?: string;
+}
+
+/**
+ * 여러 미관리 컨테이너를 한 서비스로 **수동 그룹핑**한다.
+ * DB 연결만 수행하며 컨테이너 런타임은 변경하지 않는다.
+ */
+export function attachOrphans(payload: BulkAttachPayload): Promise<BulkAttachResult> {
+  return send<BulkAttachResult>("/orphans/attach", "POST", payload);
+}
+
+/** 수동 그룹핑 해제 (DB 연결만 제거, 컨테이너는 그대로). */
+export function detachContainer(
+  containerId: string,
+): Promise<{ detached: boolean; previous_service?: string | null; note?: string }> {
+  return send(`/containers/${encodeURIComponent(containerId)}/detach`, "POST", undefined);
+}
+
+/** compose 프로젝트 단위로 컨테이너를 한 번에 그룹핑한다. */
+export function autoAttachService(
+  serviceId: string,
+  composeProject?: string | null,
+): Promise<BulkAttachResult & { compose_project: string }> {
+  return send(`/services/${encodeURIComponent(serviceId)}/auto-attach`, "POST", {
+    compose_project: composeProject ?? null,
+  });
 }
 
 export function reviewOrphan(cid: string, body: ReviewPayload): Promise<unknown> {

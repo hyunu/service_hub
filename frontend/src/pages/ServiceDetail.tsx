@@ -5,13 +5,17 @@ import {
   ExternalLink,
   GitBranch,
   HardDrive,
+  Link2,
   Pencil,
   RefreshCw,
   Rocket,
   Trash2,
+  Unlink,
 } from "lucide-react";
 import {
   deleteService,
+  detachContainer,
+  autoAttachService,
   fetchDeployments,
   fetchHostResources,
   fetchService,
@@ -322,6 +326,8 @@ export default function ServiceDetail() {
                   )}
                 </CardContent>
               </Card>
+
+              <ServiceGroupingCard serviceId={service.id} onChanged={() => void load()} />
             </div>
           </div>
         </TabsContent>
@@ -408,73 +414,211 @@ export default function ServiceDetail() {
 
 /* ------------------------------ 탭 컨텐츠 ------------------------------ */
 
-function ServiceContainers({ serviceId }: { serviceId: string }) {
-  const [items, setItems] = React.useState<ContainerListItem[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+function ServiceGroupingCard({ serviceId, onChanged }: { serviceId: string; onChanged: () => void }) {
+  const [project, setProject] = React.useState(serviceId);
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
 
-  React.useEffect(() => {
-    let alive = true;
-    fetchServiceContainers(serviceId)
-      .then((d) => alive && setItems(d))
-      .catch((e) => alive && setError(isApiError(e) ? e.message : "조회 실패"));
-    return () => {
-      alive = false;
-    };
-  }, [serviceId]);
-
-  if (error) return <ErrorState message={error} />;
-  if (!items) return <LoadingState />;
-  if (items.length === 0) {
-    return <EmptyState message="이 서비스에 연결된 컨테이너가 없습니다." />;
-  }
+  const run = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await autoAttachService(serviceId, project.trim() || null);
+      if (res.attached > 0) {
+        setMsg({
+          ok: true,
+          text:
+            `compose 프로젝트 '${res.compose_project}'에서 ${res.attached}개 컨테이너를 연결했습니다.` +
+            (res.skipped ? ` (${res.skipped}개 건너뜀)` : ""),
+        });
+        onChanged();
+      } else {
+        setMsg({ ok: true, text: res.note ?? "연결할 컨테이너가 없습니다." });
+      }
+    } catch (e) {
+      setMsg({ ok: false, text: isApiError(e) ? e.message : "자동 연결에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Card>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>컨테이너</TableHead>
-            <TableHead>컴포넌트</TableHead>
-            <TableHead>이미지</TableHead>
-            <TableHead>상태</TableHead>
-            <TableHead>관리 상태</TableHead>
-            <TableHead>포트</TableHead>
-            <TableHead>CPU</TableHead>
-            <TableHead>메모리</TableHead>
-            <TableHead>재시작</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((c) => (
-            <TableRow key={c.id}>
-              <TableCell className="font-medium">{c.name}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">{c.component_name ?? "—"}</TableCell>
-              <TableCell className="max-w-52 truncate font-mono text-xs">{c.image}</TableCell>
-              <TableCell>
-                <span className="inline-flex items-center gap-1.5 text-xs">
-                  <StatusDot level={c.state === "running" ? "ok" : c.state === "unknown" ? "unknown" : "warn"} />
-                  {containerStateLabel(c.state)}
-                  {c.health ? ` (${c.health})` : ""}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
-                  {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-xs tabular-nums">
-                {c.ports.length === 0
-                  ? "—"
-                  : c.ports.map((p) => `${p.host_port ?? "—"}→${p.container_port}`).join(", ")}
-              </TableCell>
-              <TableCell className="tabular-nums">{formatPercent(c.cpu_percent)}</TableCell>
-              <TableCell className="tabular-nums">{formatBytesMb(c.memory_mb)}</TableCell>
-              <TableCell className="tabular-nums">{c.restart_count}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <CardHeader className="pb-1">
+        <CardTitle className="inline-flex items-center gap-1.5">
+          <Link2 className="h-4 w-4 text-primary" />
+          compose 프로젝트 자동 연결
+        </CardTitle>
+        <CardDescription>
+          같은 compose 프로젝트의 컨테이너를 compose 서비스명 기준 컴포넌트로 한 번에 묶습니다.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Label htmlFor="auto-project">compose 프로젝트</Label>
+            <Input
+              id="auto-project"
+              value={project}
+              onChange={(e) => setProject(e.target.value)}
+              placeholder={serviceId}
+              maxLength={256}
+            />
+          </div>
+          <Button size="sm" onClick={() => void run()} disabled={busy}>
+            <Link2 className="h-3.5 w-3.5" />
+            {busy ? "연결 중…" : "일괄 연결"}
+          </Button>
+        </div>
+        {msg ? (
+          <div
+            className={`rounded-md border px-3 py-2 text-xs ${
+              msg.ok
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+            }`}
+            role="alert"
+          >
+            {msg.text}
+          </div>
+        ) : null}
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          비우면 서비스 ID(<span className="font-mono">{serviceId}</span>)를 사용합니다. 연결은 DB에만
+          기록되며 컨테이너는 재시작되지 않습니다.
+        </p>
+      </CardContent>
     </Card>
+  );
+}
+
+function ServiceContainers({ serviceId }: { serviceId: string }) {
+  const [items, setItems] = React.useState<ContainerListItem[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = React.useCallback(async () => {
+    setError(null);
+    try {
+      setItems(await fetchServiceContainers(serviceId));
+    } catch (e) {
+      setError(isApiError(e) ? e.message : "조회 실패");
+    }
+  }, [serviceId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const detach = async (c: ContainerListItem) => {
+    if (
+      !window.confirm(
+        `'${c.name}' 연결을 해제할까요? 컨테이너는 중지/재시작되지 않습니다.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(c.id);
+    setMsg(null);
+    try {
+      const r = await detachContainer(c.id);
+      setMsg({ ok: true, text: r.note ?? "연결을 해제했습니다." });
+      await load();
+    } catch (e) {
+      setMsg({ ok: false, text: isApiError(e) ? e.message : "해제에 실패했습니다." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (error) return <ErrorState message={error} />;
+  if (!items) return <LoadingState />;
+
+  return (
+    <div className="space-y-2">
+      {msg ? (
+        <div
+          className={`rounded-md border px-3 py-2 text-xs ${
+            msg.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+          }`}
+          role="alert"
+        >
+          {msg.text}
+        </div>
+      ) : null}
+
+      {items.length === 0 ? (
+        <EmptyState message="이 서비스에 연결된 컨테이너가 없습니다. Containers 화면에서 여러 컨테이너를 선택해 그룹핑할 수 있습니다." />
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>컨테이너</TableHead>
+                <TableHead>컴포넌트</TableHead>
+                <TableHead>이미지</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>관리 상태</TableHead>
+                <TableHead>연결</TableHead>
+                <TableHead>포트</TableHead>
+                <TableHead>CPU</TableHead>
+                <TableHead>메모리</TableHead>
+                <TableHead>재시작</TableHead>
+                <TableHead className="w-16" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{c.component_name ?? "—"}</TableCell>
+                  <TableCell className="max-w-52 truncate font-mono text-xs">{c.image}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <StatusDot level={c.state === "running" ? "ok" : c.state === "unknown" ? "unknown" : "warn"} />
+                      {containerStateLabel(c.state)}
+                      {c.health ? ` (${c.health})` : ""}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
+                      {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <Badge variant={c.manual ? "default" : "outline"}>
+                      {c.manual ? "수동" : "자동"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs tabular-nums">
+                    {c.ports.length === 0
+                      ? "—"
+                      : c.ports.map((p) => `${p.host_port ?? "—"}→${p.container_port}`).join(", ")}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{formatPercent(c.cpu_percent)}</TableCell>
+                  <TableCell className="tabular-nums">{formatBytesMb(c.memory_mb)}</TableCell>
+                  <TableCell className="tabular-nums">{c.restart_count}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void detach(c)}
+                      disabled={busyId === c.id}
+                      title="수동 그룹핑 해제 (컨테이너는 그대로)"
+                      aria-label={`${c.name} 연결 해제`}
+                    >
+                      <Unlink className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
   );
 }
 

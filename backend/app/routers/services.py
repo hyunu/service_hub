@@ -13,9 +13,11 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Container, Endpoint, PortReservation, Service, ServiceComponent
+from ..models import (Container, ContainerAssignment, Endpoint, PortReservation,
+                      Service, ServiceComponent)
 from ..security import HubError, get_read_actor, require_auth
-from ..services.events import record_audit
+from ..services.events import record_audit, record_event
+from ..services.grouping import bulk_attach
 
 router = APIRouter(prefix="/services", tags=["services"],
                    dependencies=[Depends(require_auth)])
@@ -251,12 +253,55 @@ def delete_service(service_id: str, confirm: str = Query(...),
 def service_containers(service_id: str, db: Session = Depends(get_db)):
     _service_or_404(db, service_id)
     rows = _container_rows(db, service_id)
+    manual_ids = {a.container_id for a in db.execute(
+        select(ContainerAssignment).where(
+            ContainerAssignment.service_id == service_id)).scalars()}
     return {"items": [{"container_id": r.container_id, "name": r.name, "image": r.image,
                        "state": r.state, "status_text": r.status_text,
                        "management_state": r.management_state,
                        "component": r.component_name, "health": r.health,
-                       "restart_count": r.restart_count, "ports": r.ports}
+                       "restart_count": r.restart_count, "ports": r.ports,
+                       "manual": r.container_id in manual_ids}
                       for r in rows]}
+
+
+class AutoAttachRequest(BaseModel):
+    compose_project: str | None = Field(default=None, max_length=256)
+
+
+@router.post("/{service_id}/auto-attach")
+def auto_attach(service_id: str, body: AutoAttachRequest | None = None,
+                db: Session = Depends(get_db), actor: str = Depends(get_read_actor)):
+    """compose 프로젝트 단위로 컨테이너를 한 번에 그룹핑한다.
+
+    예: 서비스 등록 직후 compose_project="<서비스 ID>"로 호출하면, 그 프로젝트의
+    여러 컨테이너가 compose 서비스명 기준 컴포넌트로 묶인다. DB 연결만 수행한다.
+    """
+    svc = _service_or_404(db, service_id)
+    project = (body.compose_project if body and body.compose_project
+               else service_id).strip()
+    if not project:
+        raise HubError(status_code=422, detail="compose_project가 비어 있습니다",
+                            code="invalid_compose_project")
+    rows = list(db.execute(select(Container)).scalars())
+    ids = [r.container_id for r in rows
+           if (r.compose_project or "").strip().lower() == project.lower()]
+    if not ids:
+        return {"service_id": service_id, "compose_project": project,
+                "attached": 0, "skipped": 0, "results": [],
+                "runtime_unchanged": True,
+                "note": f"compose 프로젝트 '{project}'에 해당하는 컨테이너가 없습니다"}
+    result = bulk_attach(db, svc, ids, None, actor)
+    if result["attached"]:
+        record_event(db, "containers_grouped",
+                     f"compose 프로젝트 '{project}' 컨테이너 {result['attached']}개를 "
+                     f"서비스 {service_id}에 그룹핑",
+                     service_id=service_id,
+                     detail={"compose_project": project,
+                             "attached": result["attached"],
+                             "skipped": result["skipped"]})
+    db.commit()
+    return {**result, "compose_project": project, "runtime_unchanged": True}
 
 
 @router.get("/{service_id}/endpoints")

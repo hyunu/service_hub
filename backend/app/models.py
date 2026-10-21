@@ -82,6 +82,23 @@ class Container(Base):
     observed_at: Mapped[str | None] = mapped_column(String(40))
 
 
+class ContainerAssignment(Base):
+    """수동 그룹핑: 컨테이너를 서비스 컴포넌트에 **명시적으로** 연결한다.
+
+    이름 기반 자동 매칭(sync_inventory)은 이름이 바뀌거나 다른 서비스와 겹치면
+    연결이 풀린다. 이 테이블의 명시적 연결은 주기 동기화보다 우선하며 유지된다.
+    컨테이너 런타임은 건드리지 않는다(DB 연결만).
+    """
+    __tablename__ = "container_assignments"
+
+    container_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    service_id: Mapped[str] = mapped_column(
+        ForeignKey("services.id", ondelete="CASCADE"), index=True)
+    component_name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+
+
 class Endpoint(Base):
     __tablename__ = "endpoints"
 

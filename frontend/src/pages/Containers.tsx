@@ -3,15 +3,18 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Link2, RefreshCw, ScrollText, X } from "lucide-react";
 import {
   attachOrphan,
+  attachOrphans,
   fetchContainer,
   fetchContainers,
   fetchOrphans,
+  fetchServices,
   isApiError,
   reviewOrphan,
   type ContainerListItem,
   type ContainerDetail,
   type ManagementState,
   type OrphanItem,
+  type ServiceListItem,
 } from "../lib/api";
 import { containerStateLabel, MANAGEMENT_LABEL, MANAGEMENT_VARIANT, REVIEW_LABEL } from "../lib/labels";
 import { formatBytesMb, formatDateTime, formatPercent, formatRelative } from "../lib/format";
@@ -423,6 +426,14 @@ export default function Containers() {
   const [error, setError] = React.useState<string | null>(null);
   const [focus, setFocus] = React.useState<string | null>(params.get("focus"));
 
+  // 수동 그룹핑(다중 선택 → 서비스 연결)
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [services, setServices] = React.useState<ServiceListItem[]>([]);
+  const [bulkService, setBulkService] = React.useState("");
+  const [bulkComponent, setBulkComponent] = React.useState("");
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [bulkMsg, setBulkMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+
   const state = params.get("state") ?? "";
   const management = params.get("management") ?? "";
 
@@ -435,6 +446,11 @@ export default function Containers() {
         management: (management || undefined) as ManagementState | undefined,
       });
       setItems(list);
+      // 필터 변경 등으로 사라진 항목은 선택에서 제거
+      setSelected((prev) => {
+        const ids = new Set(list.map((c) => c.id));
+        return new Set([...prev].filter((id) => ids.has(id)));
+      });
     } catch (e) {
       setError(isApiError(e) ? e.message : "컨테이너 목록을 불러오지 못했습니다.");
     } finally {
@@ -445,6 +461,62 @@ export default function Containers() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    fetchServices().then(setServices).catch(() => setServices([]));
+  }, []);
+
+  const canSelect = (c: ContainerListItem) =>
+    c.management_state === "unmanaged" || c.management_state === "unknown";
+
+  const selectableIds = items.filter(canSelect).map((c) => c.id);
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+
+  const attachSelected = async () => {
+    if (!bulkService) {
+      setBulkMsg({ ok: false, text: "연결할 서비스를 선택하세요." });
+      return;
+    }
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await attachOrphans({
+        service_id: bulkService,
+        container_ids: Array.from(selected),
+        component_name: bulkComponent.trim() || null,
+      });
+      const reasons = res.results
+        .filter((r) => !r.ok)
+        .map((r) => r.reason)
+        .filter(Boolean)
+        .slice(0, 2);
+      setBulkMsg({
+        ok: res.attached > 0,
+        text:
+          `${res.attached}개를 서비스 '${res.service_id}'에 연결했습니다.` +
+          (res.skipped ? ` (${res.skipped}개 건너뜀: ${reasons.join(", ")})` : ""),
+      });
+      setSelected(new Set());
+      setBulkComponent("");
+      await load();
+    } catch (e) {
+      setBulkMsg({ ok: false, text: isApiError(e) ? e.message : "그룹핑에 실패했습니다." });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const setChip = (chip: FilterChip) => {
     const next = new URLSearchParams();
@@ -497,6 +569,59 @@ export default function Containers() {
         <span className="ml-auto text-xs text-muted-foreground">{items.length}개</span>
       </div>
 
+      {selected.size > 0 ? (
+        <div className="mb-3 flex flex-wrap items-end gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+          <div className="text-xs font-medium">선택 {selected.size}개</div>
+          <div className="w-56">
+            <Select
+              value={bulkService}
+              onValueChange={setBulkService}
+              placeholder="서비스 선택"
+              options={services.map((s) => ({ value: s.id, label: `${s.name} (${s.id})` }))}
+              aria-label="연결할 서비스"
+            />
+          </div>
+          <div className="w-48">
+            <Input
+              value={bulkComponent}
+              onChange={(e) => setBulkComponent(e.target.value)}
+              placeholder="컴포넌트 이름(선택)"
+              aria-label="컴포넌트 이름"
+              maxLength={120}
+            />
+          </div>
+          <Button size="sm" onClick={() => void attachSelected()} disabled={!bulkService || bulkBusy}>
+            <Link2 className="h-3.5 w-3.5" />
+            {bulkBusy ? "연결 중…" : "서비스에 연결"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelected(new Set())}
+            disabled={bulkBusy}
+          >
+            선택 해제
+          </Button>
+          <p className="w-full text-[11px] text-muted-foreground">
+            선택한 컨테이너는 재시작되지 않습니다(DB 연결만). 컴포넌트 이름을 비우면 compose
+            서비스명 기준으로 묶입니다.
+          </p>
+        </div>
+      ) : null}
+
+      {bulkMsg ? (
+        <div
+          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+            bulkMsg.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+          }`}
+          role="alert"
+        >
+          {bulkMsg.text}
+        </div>
+      ) : null}
+
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
       <Card>
@@ -508,6 +633,16 @@ export default function Containers() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8">
+                  <input
+                    type="checkbox"
+                    aria-label="미관리 컨테이너 전체 선택"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={selectableIds.length === 0}
+                    className="h-3.5 w-3.5 cursor-pointer accent-current"
+                  />
+                </TableHead>
                 <TableHead>컨테이너</TableHead>
                 <TableHead>이미지</TableHead>
                 <TableHead>상태</TableHead>
@@ -532,6 +667,17 @@ export default function Containers() {
                     if (e.key === "Enter") setFocus(c.id);
                   }}
                 >
+                  <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`${c.name} 선택`}
+                      checked={selected.has(c.id)}
+                      onChange={() => toggleSelect(c.id)}
+                      disabled={!canSelect(c)}
+                      title={canSelect(c) ? "선택해서 서비스로 그룹핑" : "이미 서비스에 연결됨"}
+                      className="h-3.5 w-3.5 cursor-pointer accent-current disabled:cursor-not-allowed"
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium leading-tight">{c.name}</div>
                     <div className="font-mono text-[11px] text-muted-foreground">{c.id.slice(0, 12)}</div>
