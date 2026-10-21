@@ -73,9 +73,11 @@ def container_resources(db: Session = Depends(get_db)):
     from ..dependencies import get_gateway
     gateway = get_gateway()
     rows = list(db.execute(select(Container).where(Container.state == "running")).scalars())
+    # docker stats 는 컨테이너별로 ~1초 걸리므로 병렬로 수집한다.
+    stats_map = gateway.stats_many([row.container_id for row in rows])
     items = []
     for row in rows:
-        stats = gateway.stats(row.container_id)
+        stats = stats_map.get(row.container_id)
         items.append({
             "container_id": row.container_id, "name": row.name, "service_id": row.service_id,
             "state": row.state, "health": row.health, "restart_count": row.restart_count,
@@ -98,7 +100,9 @@ def service_resources(db: Session = Depends(get_db)):
     gateway = get_gateway()
     rows = list(db.execute(select(Container)).scalars())
     ids_running = [r.container_id for r in rows if r.state == "running"]
-    stats = {cid: gateway.stats(cid) or {} for cid in ids_running}
+    # docker stats 는 컨테이너별로 ~1초 걸리므로 병렬로 수집한다.
+    stats_map = gateway.stats_many(ids_running)
+    stats = {cid: (stats_map.get(cid) or {}) for cid in ids_running}
     comp_service = {r.container_id: r.service_id for r in rows}
     agg = aggregate_by_service(stats, comp_service)
     services = {s.id: s for s in db.execute(select(Service)).scalars()}

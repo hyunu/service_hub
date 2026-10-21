@@ -143,6 +143,26 @@ class DockerGateway:
         except Exception:
             return None
 
+    def stats_many(self, container_ids: list[str]) -> dict[str, dict | None]:
+        """여러 컨테이너의 stats 를 병렬로 수집한다.
+
+        각 `docker stats --no-stream` 호출은 1초가량 걸리므로 순차 호출은
+        N 컨테이너에 대해 N초가 걸린다. 스레드 풀로 병렬화해 지연을 줄인다.
+        """
+        if not container_ids:
+            return {}
+        import concurrent.futures
+        out: dict[str, dict | None] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(container_ids), 8)) as ex:
+            futs = {ex.submit(self.stats, cid): cid for cid in container_ids}
+            for fut in concurrent.futures.as_completed(futs):
+                cid = futs[fut]
+                try:
+                    out[cid] = fut.result(timeout=10)
+                except Exception:
+                    out[cid] = None
+        return out
+
     # ------------------------------------------------------------------
 
     def compose_config(self, project_dir: str, project_name: str) -> dict:
