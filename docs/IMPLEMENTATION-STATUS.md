@@ -1,6 +1,6 @@
 # IMPLEMENTATION STATUS
 
-최종 갱신: 2026-10-21 (Phase 2 + Phase 3 apply — 로컬 검증 완료 / N100 서버 배포·관리자 초기화 완료)
+최종 갱신: 2026-10-22 (N100 실서버 배포·관리자 초기화·인벤토리 정리·MCP/API 키·배포 잠금 해제 완료)
 
 ## 완료
 - **Phase 0**: 환경 조사(개발 머신 macOS / Docker 29.4.3, 기존 컨테이너 19개),
@@ -60,6 +60,18 @@
     조회, 서비스 등록, 미관리 컨테이너 연결, 배포 계획/실행/상태, 로그).
     임의 셸 실행 도구는 없고 기존 REST API만 호출한다.
   - 테스트: backend +6(API 키), CLI +4, MCP 12, frontend +4(Settings).
+- **대시보드 회귀 수정 2건 (2026-10-22)**:
+  - **서비스 등록 422 해소**: 등록 폼이 `{service, source, deployment, containers,
+    endpoints}`(service.yaml 형식)를 보내는데 `POST /services`가 평탄 필드만 받아
+    422가 발생했다. `ServiceCreate`에 `model_validator(before)`를 추가해 중첩 스펙을
+    정규화하고(`containers`→컴포넌트, `endpoints`→엔드포인트), 평탄 형식도 계속 지원.
+    필수값 누락은 `422 missing_fields`로 명확히 응답. 프론트는 FastAPI 422(detail 배열)를
+    "입력값이 올바르지 않습니다 — id: Field required" 형태로 표시한다.
+  - **다이얼로그 포커스 튕김**: `Dialog`의 effect 의존성에 인라인 `onClose`가 포함되어
+    입력할 때마다 재실행되며 `panelRef.focus()`가 호출됐다(입력 불가). 최신 핸들러는 ref로
+    유지하고 효과는 `open`에만 반응하도록 수정. Services 등록·ServiceDetail 삭제 다이얼로그 공통.
+  - 테스트: backend +5(`test_service_create_shapes.py`), frontend +2(포커스 회귀, 422 메시지).
+  - N100 배포 후 실서버에서 중첩 payload 등록 201 / 필수값 누락 422 / 삭제 404 확인.
 - **관리자 비밀번호 분실 복구 (2026-10-21)**:
   - `POST /api/v1/auth/reset-admin`: 관리자 자격 증명(사용자명·비밀번호 해시·패스워드 키)
    만 삭제하고 설정 마법사를 다시 표시한다. 서비스/포트/컨테이너 데이터는 보존.
