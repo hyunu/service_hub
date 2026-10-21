@@ -29,6 +29,7 @@ class _Stub(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         _Stub.last_post_path = self.path
+        _Stub.last_headers = dict(self.headers)
         length = int(self.headers.get("Content-Length") or 0)
         _Stub.last_post_body = self.rfile.read(length).decode() if length else ""
         code, body = self.post_routes.get(self.path,
@@ -286,3 +287,120 @@ def test_deploy_status_renders(stub_server, monkeypatch, capsys):
     main(["deploy", "status", "dep-1"])
     out = capsys.readouterr().out
     assert "dep-1" in out and "succeeded" in out
+
+
+# ------------------------------------------------------------ admin reset --
+
+def _make_hub_db(path: Path, username: str = "admin") -> None:
+    """Hub DB와 비슷한 최소 스키마를 만든다 (settings + webauthn_credentials)."""
+    import sqlite3
+    con = sqlite3.connect(str(path))
+    con.execute("CREATE TABLE settings (key VARCHAR(64) PRIMARY KEY, value JSON, "
+                "updated_at VARCHAR(40))")
+    con.execute("CREATE TABLE webauthn_credentials (id INTEGER PRIMARY KEY, "
+                "credential_id VARCHAR(128) UNIQUE, public_key TEXT, sign_count INTEGER, "
+                "user_handle VARCHAR(128), label VARCHAR(120), device_type VARCHAR(32), "
+                "backed_up BOOLEAN, created_at VARCHAR(40), last_used_at VARCHAR(40))")
+    con.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("admin", json.dumps({"username": username, "password_hash": "x",
+                                      "created_at": "2026-10-21T00:00:00+00:00",
+                                      "session_epoch": "abc"}),
+                 "2026-10-21T00:00:00+00:00"))
+    import base64
+    handle = base64.urlsafe_b64encode(username.encode()).decode().rstrip("=")
+    con.execute("INSERT INTO webauthn_credentials (credential_id, public_key, sign_count, "
+                "user_handle, label, created_at) VALUES (?, ?, 0, ?, ?, ?)",
+                ("cred-1", "pub", handle, "패스워드 키", "2026-10-21T00:00:00+00:00"))
+    con.commit()
+    con.close()
+
+
+def test_admin_reset_requires_yes(monkeypatch):
+    """--yes 없이는 백엔드를 호출하지 않고 거부한다."""
+    monkeypatch.setenv("HUB_URL", "http://127.0.0.1:1/api/v1")
+    with pytest.raises(SystemExit) as exc:
+        main(["admin", "reset"])
+    assert exc.value.code == 4
+
+
+def test_admin_reset_api_posts(stub_server, monkeypatch, capsys):
+    """API 모드는 reset-admin 엔드포인트를 호출한다."""
+    url = stub_server({}, post_routes={
+        "/api/v1/auth/reset-admin": (200, {"ok": True, "reset": True,
+                                           "username": "admin", "setup_required": True})})
+    monkeypatch.setenv("HUB_URL", url)
+    main(["admin", "reset", "--yes"])
+    out = capsys.readouterr().out
+    assert "초기화" in out
+    assert _Stub.last_post_path == "/api/v1/auth/reset-admin"
+
+
+def test_admin_reset_api_sends_token(stub_server, monkeypatch, capsys):
+    """복구 토큰이 주어지면 헤더로 전송된다."""
+    url = stub_server({}, post_routes={
+        "/api/v1/auth/reset-admin": (200, {"ok": True, "reset": True,
+                                           "username": "admin", "setup_required": True})})
+    monkeypatch.setenv("HUB_URL", url)
+    main(["admin", "reset", "--yes", "--token", "secret-token"])
+    capsys.readouterr()
+    assert _Stub.last_headers.get("X-Hub-Admin-Reset-Token") == "secret-token"
+
+
+def test_admin_reset_offline_deletes_admin_row(tmp_path, capsys):
+    """오프라인 모드는 DB 파일에서 관리자 자격 증명만 지운다."""
+    import sqlite3
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    main(["admin", "reset", "--yes", "--db", str(db)])
+    out = capsys.readouterr().out
+    assert "초기화" in out
+
+    con = sqlite3.connect(str(db))
+    rows = con.execute("SELECT key FROM settings").fetchall()
+    creds = con.execute("SELECT credential_id FROM webauthn_credentials").fetchall()
+    con.close()
+    assert rows == []
+    assert creds == []
+    # 백업 파일이 남는다
+    assert list(tmp_path.glob("hub.db.bak-*"))
+
+
+def test_admin_reset_offline_keeps_other_settings(tmp_path):
+    """다른 설정 키는 지우지 않는다."""
+    import sqlite3
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                ("other", json.dumps({"x": 1}), "2026-10-21T00:00:00+00:00"))
+    con.commit()
+    con.close()
+
+    main(["admin", "reset", "--yes", "--db", str(db)])
+
+    con = sqlite3.connect(str(db))
+    keys = [r[0] for r in con.execute("SELECT key FROM settings").fetchall()]
+    con.close()
+    assert keys == ["other"]
+
+
+def test_admin_reset_offline_missing_db(tmp_path):
+    """DB 파일이 없으면 종료 코드 5."""
+    with pytest.raises(SystemExit) as exc:
+        main(["admin", "reset", "--yes", "--db", str(tmp_path / "nope.db")])
+    assert exc.value.code == 5
+
+
+def test_admin_reset_offline_requires_admin(tmp_path):
+    """관리자가 없는 DB는 거절한다."""
+    import sqlite3
+    db = tmp_path / "hub.db"
+    _make_hub_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("DELETE FROM settings WHERE key='admin'")
+    con.commit()
+    con.close()
+    with pytest.raises(SystemExit) as exc:
+        main(["admin", "reset", "--yes", "--db", str(db)])
+    assert exc.value.code == 5
+

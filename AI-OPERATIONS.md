@@ -90,3 +90,57 @@
 1. 즉시 작업을 중단하고 현재 상태(`hub status --json`)와 관련 로그를 수집한다.
 2. 임의의 복구 명령을 실행하지 않고 사용자에게 상황을 보고한다.
 3. 기존 서비스 영향 가능성이 있으면 영향받는 서비스 목록과 데이터 위험도를 명시한다.
+
+## 7. 관리자 비밀번호 분실 복구 (`hub admin reset`)
+
+비밀번호를 잊어 로그인이 안 되면 아래 순서로 복구한다. **기존 컨테이너/포트/볼륨은
+건드리지 않는다** — 관리자 자격 증명(사용자명·비밀번호 해시·패스워드 키)만 지운다.
+
+### 7.1 서버 로컬(루프백) — 권장
+
+```bash
+# 컨테이너 안에서 루프백 요청으로 초기화 (컨테이너 내 127.0.0.1 → 서버 루프백 규칙 충족)
+docker exec hub-backend python - <<'PY'
+import urllib.request
+req = urllib.request.Request("http://127.0.0.1:8420/api/v1/auth/reset-admin",
+                             data=b"{}", method="POST",
+                             headers={"Content-Type": "application/json"})
+print(urllib.request.urlopen(req).read().decode())
+PY
+```
+
+또는 CLI(서버에 설치된 경우):
+```bash
+hub admin reset --yes --url http://127.0.0.1:8420/api/v1
+```
+
+### 7.2 원격 (복구 토큰) — tailnet 등
+
+1. 서버의 `/srv/service-hub/.env`에 `HUB_ADMIN_RESET_TOKEN=<임의의 긴 값>`을 추가한다.
+2. 백엔드를 재기동한다 (`docker compose up -d backend`).
+3. 토큰을 헤더로 보내 초기화한다.
+
+```bash
+hub admin reset --yes --url https://n100-pve-dev.tail7d413d.ts.net/api/v1 \
+     --token '<HUB_ADMIN_RESET_TOKEN 값>'
+```
+
+**복구 토큰은 1회 사용이다.** 성공하면 같은 토큰으로는 다시 초기화할 수 없다
+(`403 reset_token_used`). 사용이 끝나면 `.env`에서 토큰을 제거하고 백엔드를 재기동한다.
+
+### 7.3 오프라인 (DB 파일 직접) — API가 닿지 않을 때
+
+```bash
+sudo hub admin reset --yes --db /var/lib/docker/volumes/service-hub_hub-data/_data/hub.db
+```
+
+- DB 파일을 먼저 백업한다(`hub.db.bak-<날짜>` 사본 생성).
+- `settings`의 `admin` 행과 해당 관리자의 `webauthn_credentials`만 삭제한다.
+- 백엔드가 실행 중이어도 안전하다(관리자 행이 사라지므로 세션은 자동으로 무효가 된다).
+- 백엔드가 DB를 캐시하지 않으므로 **재시작이 필요 없다**.
+
+### 7.4 복구 후
+
+1. 대시보드(https://<tailnet FQDN>)를 다시 열어 **설정 마법사**에서 관리자 계정을 새로 만든다.
+2. 이전 비밀번호는 복구할 수 없다 — 새 비밀번호를 안전하게 정한다.
+3. `hub status --json`로 정상 동작을 확인한다.

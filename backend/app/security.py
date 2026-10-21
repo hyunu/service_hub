@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import base64
 import secrets
 import threading
 import time
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
-from .models import Setting
+from .models import Setting, WebAuthnCredential
 
 
 class HubError(HTTPException):
@@ -63,6 +64,27 @@ def admin_exists(db: Session) -> bool:
     return bool(row and row.value.get("username"))
 
 
+def admin_epoch(db: Session) -> str | None:
+    """현재 관리자 세션 epoch.
+
+    관리자가 새로 만들어질 때마다 다른 값이 발급된다. 세션에 담긴 epoch가
+    현재 값과 다르면(관리자 초기화/재설정) 기존 세션은 무효로 취급한다.
+    """
+    row = db.get(Setting, "admin")
+    if row is None:
+        return None
+    epoch = row.value.get("session_epoch")
+    return str(epoch) if epoch else None
+
+
+def user_handle(username: str) -> str:
+    """WebAuthn user_handle — base64url(사용자명), 패딩 제거.
+
+    webauthn.helpers.bytes_to_base64url 과 동일한 인코딩이다.
+    """
+    return base64.urlsafe_b64encode(username.encode("utf-8")).decode("ascii").rstrip("=")
+
+
 def create_admin(db: Session, username: str, password: str) -> None:
     if admin_exists(db):
         raise HubError(status_code=409, detail="관리자가 이미 설정되어 있습니다",
@@ -71,8 +93,37 @@ def create_admin(db: Session, username: str, password: str) -> None:
         "username": username,
         "password_hash": hash_password(password),
         "created_at": _utcnow(),
+        # 관리자가 새로 만들어질 때마다 바뀌는 값 — 기존 세션 무효화용
+        "session_epoch": secrets.token_hex(16),
     }))
     db.flush()
+
+
+def reset_admin(db: Session) -> str | None:
+    """관리자 자격 증명을 초기화한다 (비밀번호 분실 복구).
+
+    관리자 행과 그 관리자에게 등록된 WebAuthn 자격 증명만 삭제한다.
+    서비스/포트/컨테이너/이벤트 등 다른 데이터는 건드리지 않는다.
+    관리자 행이 사라지므로 ``admin_epoch`` 가 None 이 되고, 기존 세션은
+    자동으로 무효가 된다 (require_auth).
+
+    반환값: 삭제된 관리자 사용자명 (관리자가 없었다면 None)
+    """
+    row = db.get(Setting, "admin")
+    if row is None:
+        return None
+    username = row.value.get("username")
+    if username:
+        handle = user_handle(str(username))
+        for cred in db.query(WebAuthnCredential).filter(
+                WebAuthnCredential.user_handle == handle).all():
+            db.delete(cred)
+    db.delete(row)
+    db.flush()
+    # 로그인 잠금 기록을 지운다 (잠금 상태로 초기화가 막히지 않도록)
+    with _SESSION_LOCK:
+        _LOGIN_FAILS.clear()
+    return str(username) if username else None
 
 
 def _lock_key(username: str, ip: str) -> str:
@@ -90,15 +141,18 @@ def register_failure(username: str, ip: str) -> None:
     _LOGIN_FAILS.setdefault(_lock_key(username, ip), []).append(time.time())
 
 
-def create_session(username: str) -> tuple[str, str]:
+def create_session(username: str, epoch: str | None = None) -> tuple[str, str]:
     """새 세션을 발급한다 — (token, csrf) 반환.
 
     패스워드 로그인과 WebAuthn 로그인 모두 이 헬퍼를 공유한다.
+    ``epoch`` 는 발급 시점의 관리자 epoch — 관리자가 초기화/재설정되면
+    이 값이 달라져 기존 세션이 무효가 된다.
     """
     token = secrets.token_urlsafe(32)
     csrf = secrets.token_urlsafe(24)
     with _SESSION_LOCK:
-        SESSIONS[token] = {"username": username, "csrf": csrf, "created_at": _utcnow()}
+        SESSIONS[token] = {"username": username, "csrf": csrf, "created_at": _utcnow(),
+                            "epoch": epoch}
     return token, csrf
 
 
@@ -119,7 +173,7 @@ def login(db: Session, username: str, password: str, ip: str) -> tuple[str, str]
         raise HubError(status_code=401, detail="사용자명 또는 비밀번호가 올바르지 않습니다",
                             code="invalid_credentials")
     _LOGIN_FAILS.pop(_lock_key(username, ip), None)
-    return create_session(username)
+    return create_session(username, admin_epoch(db))
 
 
 def logout(token: str | None) -> None:
@@ -142,7 +196,21 @@ def get_session_info(token: str | None) -> dict | None:
         info = SESSIONS.get(token)
     if info is None:
         return None
-    return {"username": info["username"], "csrf": info["csrf"]}
+    return {"username": info["username"], "csrf": info["csrf"], "epoch": info.get("epoch")}
+
+
+def get_valid_session(db: Session, token: str | None) -> dict | None:
+    """현재 관리자 상태와 일치하는 세션만 반환한다.
+
+    관리자가 초기되었거나 새로 만들어진 경우(epoch 불일치) 세션은 무효다.
+    """
+    info = get_session_info(token)
+    if info is None:
+        return None
+    epoch = admin_epoch(db)
+    if epoch is None or info.get("epoch") != epoch:
+        return None
+    return info
 
 
 def require_auth(request: Request, db: Session = Depends(get_db),
@@ -150,7 +218,7 @@ def require_auth(request: Request, db: Session = Depends(get_db),
                  x_csrf_token: str | None = Header(default=None)) -> dict:
     """mutation은 항상 인증+CSRF. 읽기(GET)는 루프백 전용 바인드에서만 생략."""
     settings = get_settings()
-    session = get_session_info(hub_session)
+    session = get_valid_session(db, hub_session)
     mutation = request.method not in ("GET", "HEAD", "OPTIONS")
 
     if session is None:

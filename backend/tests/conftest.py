@@ -86,7 +86,9 @@ def app_factory(settings, gateway):
             os.environ["HUB_DEPLOY_WORKDIR"] = deploy_workdir
         application = create_app(s or settings, gateway=gw or gateway)
         init_db()
-        client = TestClient(application)
+        # client 호스트를 루프백으로 고정한다 — 루프백 전용 경로(관리자 초기화 등)를
+        # 실제 서버와 동일하게 검증하기 위함이다.
+        client = TestClient(application, client=("127.0.0.1", 50000))
         client.__enter__()  # lifespan 실행 (init_db, 게이트웨이 주입)
         if admin:
             r = client.post("/api/v1/setup/admin",

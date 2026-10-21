@@ -40,6 +40,9 @@
 | 12 | env 격리 | 서비스 env 조회 API 미제공. `.env` 직접 읽기 금지(파일 이름만 노출) | 1~2 |
 | 13 | Git에 시크릿 금지 | .gitignore, pre-commit 안내 (문서화) | 1 |
 | 14 | 외부 미노출 | 설치 시 바인드 주소/포트 경고, publish 정책 검사 | 1~2 |
+| 15 | 비밀번호 변경 | `POST /auth/change-password` — 세션+CSRF+현 비밀번호 재확인, 감사 로그 | 2~3 |
+| 16 | 패스워드리스 | WebAuthn — HTTPS 컨텍스트 전용, 공개키만 저장, 1회용 챌린지 | 2~3 |
+| 17 | 관리자 초기화 | `POST /auth/reset-admin` — 루프백 또는 1회용 복구 토큰만, 감사 로그 | 3 |
 
 ## 추가 통제
 
@@ -62,6 +65,20 @@
   는 항상 `503 deploy_disabled`이며, 실행기 자체도 게이트를 재확인한다(방어 심층).
 - `docker_client.py`의 변경 함수(`compose_up`/`compose_down`)는 `allow_mutations=True`가
   아니면 `PermissionError`를 낸다. 인자는 리스트로만 전달되며 `shell=True`/`sh -c` 경로가 없다.
+- 관리자 초기화(`POST /auth/reset-admin`, CLI `hub admin reset`)는 인증 우회 경로가 될 수
+  있으므로 다음 조건을 **모두** 만족해야 한다.
+  - 요청이 루프백에서 왔거나, `HUB_ADMIN_RESET_TOKEN` 설정 + `X-Hub-Admin-Reset-Token`
+    헤더가 일치해야 한다. 둘 다 아니면 `403 reset_not_allowed`다.
+  - 복구 토큰은 **1회 사용**이다 — 성공 후 토큰 해시가 DB에 기록되어 같은 토큰으로
+    다시 초기화할 수 없다(`403 reset_token_used`). 재사용하려면 .env의 토큰을 새로
+    설정하고 백엔드를 재기동해야 한다.
+  - 초기화는 관리자 행(사용자명/비밀번호 해시)과 그 관리자의 WebAuthn 자격 증명만
+    삭제한다. 서비스/포트/컨테이너/이벤트 등 다른 데이터는 건드리지 않는다.
+  - 초기화하면 관리자 `session_epoch`이 사라지므로 **기존 세션이 모두 무효**가 된다
+    (세션 쿠키를 가진 요청도 401). 사용자는 설정 마법사에서 새 계정을 만든다.
+  - 초기화는 감사 로그(`auth.admin_reset`)에 남는다.
+  - 오프라인 모드(`hub admin reset --db <경로>`)는 DB 파일을 직접 다루므로 백업 사본을
+    먼저 남기고, 테이블을 직접 쿼리하지 않고 `settings`/`webauthn_credentials`만 건드린다.
 
 ## 수용 불가 구조 (명시)
 

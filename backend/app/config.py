@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     webauthn_origin: str = ""       # 예: https://n100-pve-dev.tail7d413d.ts.net
     webauthn_timeout_ms: int = 60000
 
+    # 관리자 비밀번호 분실 복구 토큰 (hub admin reset).
+    # 비어 있으면 루프백 요청만 초기화할 수 있다.
+    # 설정하면 X-Hub-Admin-Reset-Token 헤더를 가진 요청도 허용한다 (1회 사용).
+    admin_reset_token: str = ""
+
     # 컨테이너 안에서 platform.node()는 컨테이너 ID를 반환한다.
     # 호스트명을 정확히 표시하려면 배포 시 HUB_HOST_HOSTNAME을 주입한다.
     host_hostname: str = ""

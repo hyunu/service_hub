@@ -49,8 +49,8 @@ from ..config import get_settings
 from ..db import get_db
 from ..models import Setting, WebAuthnCredential, utcnow
 from ..security import (
-    SESSION_COOKIE, HubError, create_session, get_read_actor, is_locked,
-    lockout_minutes, register_failure, require_auth,
+    SESSION_COOKIE, HubError, admin_epoch, create_session, get_read_actor,
+    is_locked, lockout_minutes, register_failure, require_auth, user_handle,
 )
 from ..services.events import record_audit
 
@@ -112,7 +112,8 @@ def _credentials_for(db: Session, username: str) -> list[WebAuthnCredential]:
 
 
 def _user_handle(username: str) -> str:
-    return bytes_to_base64url(username.encode("utf-8"))
+    """WebAuthn user_handle — security.user_handle 와 동일 인코딩."""
+    return user_handle(username)
 
 
 def _client_ip(request: Request) -> str:
@@ -418,7 +419,7 @@ def login_finish(request: Request, body: dict[str, Any] = Body(...),
     row.last_used_at = utcnow()
     db.flush()
 
-    token, csrf = create_session(username)
+    token, csrf = create_session(username, admin_epoch(db))
     db.commit()
 
     out = JSONResponse({"ok": True, "username": username, "csrf_token": csrf,

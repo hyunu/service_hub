@@ -35,6 +35,10 @@ cd cli && uv sync && uv run hub status
 
 최초 접속 시 관리자 계정을 생성한다. **기본 비밀번호는 존재하지 않는다.**
 
+비밀번호를 잊어 로그인이 안 되면 `hub admin reset --yes`로 관리자 자격 증명만 초기화한다
+(서비스/포트/컨테이너 데이터는 유지, 기존 세션 무효화 → 설정 마법사가 다시 나타난다).
+자세한 절차는 [AI-OPERATIONS.md §7](AI-OPERATIONS.md) 참고.
+
 ## 서버 설치 (N100, Linux)
 
 ```bash

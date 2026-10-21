@@ -41,10 +41,11 @@ def base_url() -> str:
     return os.environ.get("HUB_URL", DEFAULT_BASE).rstrip("/")
 
 
-def api(path: str, method: str = "GET", payload: dict[str, Any] | None = None) -> Any:
+def api(path: str, method: str = "GET", payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None) -> Any:
     url = f"{base_url()}{path}"
     try:
-        resp = httpx.request(method, url, json=payload, timeout=10.0)
+        resp = httpx.request(method, url, json=payload, headers=headers, timeout=10.0)
     except httpx.HTTPError as exc:
         raise CliError(
             f"Service Hub에 연결할 수 없습니다: {url}\n"
@@ -429,6 +430,115 @@ def cmd_deploy_status(args: argparse.Namespace) -> None:
                          f"service={d.get('service_id')}"))
 
 
+# ------------------------------------------------------------ admin reset --
+
+def _reset_db_path(args: argparse.Namespace) -> Path:
+    raw = args.db or os.environ.get("HUB_DB_PATH") or "./data/hub.db"
+    return Path(raw).expanduser()
+
+
+def _user_handle(username: str) -> str:
+    """WebAuthn user_handle — base64url(사용자명), 패딩 제거."""
+    import base64
+    return base64.urlsafe_b64encode(username.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _backup_db(path: Path) -> Path:
+    """DB 파일(및 WAL/SHM)을 백업한다. 되돌리기 위한 사본."""
+    import datetime
+    import shutil
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = path.with_name(f"{path.name}.bak-{stamp}")
+    shutil.copy2(path, target)
+    for suffix in ("-wal", "-shm"):
+        side = path.with_name(path.name + suffix)
+        if side.exists():
+            shutil.copy2(side, target.with_name(target.name + suffix))
+    return target
+
+
+def _reset_admin_offline(path: Path) -> dict[str, Any]:
+    """DB 파일을 직접 열어 관리자 자격 증명만 삭제한다 (오프라인 복구).
+
+    서버 API에 접근할 수 없을 때(컨테이너/DB 볼륨 직접 접근) 사용하는 경로다.
+    서비스/포트/컨테이너/이벤트 등 다른 테이블은 건드리지 않는다.
+    """
+    import sqlite3
+
+    if not path.exists():
+        raise CliError(f"DB 파일을 찾을 수 없습니다: {path}", EXIT_NOTFOUND)
+
+    backup = _backup_db(path)
+    con = sqlite3.connect(str(path))
+    try:
+        tables = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "settings" not in tables:
+            raise CliError(f"Service Hub DB가 아닙니다 (settings 테이블 없음): {path}",
+                           EXIT_REJECTED)
+        row = con.execute("SELECT value FROM settings WHERE key='admin'").fetchone()
+        if row is None:
+            raise CliError("설정된 관리자가 없습니다 (이미 초기화된 상태).", EXIT_NOTFOUND)
+        try:
+            admin = json.loads(row[0]) if isinstance(row[0], (str, bytes)) else dict(row[0])
+        except ValueError:
+            admin = {}
+        username = admin.get("username")
+        removed_credentials = 0
+        if username and "webauthn_credentials" in tables:
+            handle = _user_handle(str(username))
+            cur = con.execute(
+                "DELETE FROM webauthn_credentials WHERE user_handle=?", (handle,))
+            removed_credentials = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        con.execute("DELETE FROM settings WHERE key='admin'")
+        con.commit()
+    except sqlite3.Error as exc:
+        con.rollback()
+        raise CliError(f"DB 초기화 실패: {exc}", EXIT_ERR) from exc
+    finally:
+        con.close()
+    return {"ok": True, "reset": True, "mode": "offline", "db": str(path),
+            "backup": str(backup), "username": username,
+            "webauthn_credentials_removed": removed_credentials,
+            "setup_required": True}
+
+
+def cmd_admin_reset(args: argparse.Namespace) -> None:
+    """관리자 비밀번호 분실 복구 — 관리자 자격 증명을 초기화한다.
+
+    초기화하면 로그인 화면 대신 설정 마법사가 다시 나타나며, 새로운
+    사용자명/비밀번호를 직접 만들게 된다. 서비스/포트/컨테이너 데이터는
+    그대로 유지된다.
+    """
+    if not args.yes:
+        raise CliError(
+            "관리자 초기화는 로그인 자격 증명을 삭제합니다. 계속하려면 --yes 를 붙여 "
+            "다시 실행하세요.", EXIT_REJECTED)
+
+    if args.db:
+        data = _reset_admin_offline(_reset_db_path(args))
+    else:
+        token = args.token or os.environ.get("HUB_ADMIN_RESET_TOKEN") or ""
+        headers = {"X-Hub-Admin-Reset-Token": token} if token else None
+        data = api("/auth/reset-admin", method="POST", payload={}, headers=headers)
+        data.setdefault("mode", "api")
+        data.setdefault("url", base_url())
+
+    def render(d: dict[str, Any]) -> None:
+        print("관리자 자격 증명이 초기화되었습니다.")
+        if d.get("username"):
+            print(f"  삭제된 관리자 : {d['username']}")
+        if d.get("db"):
+            print(f"  DB            : {d['db']}")
+        if d.get("backup"):
+            print(f"  백업          : {d['backup']}")
+        if d.get("webauthn_credentials_removed"):
+            print(f"  삭제된 패스워드 키 : {d['webauthn_credentials_removed']}개")
+        print("  다음: 대시보드를 다시 열어 설정 마법사에서 관리자 계정을 생성하세요.")
+
+    emit(data, args.json, render)
+
+
 # ---------------------------------------------------------------- parser ----
 
 def build_parser() -> argparse.ArgumentParser:
@@ -447,6 +557,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  hub resource\n"
             "  hub logs ai-platform --tail 100\n"
             "  hub deploy plan ./service.yaml --json\n"
+            "  hub admin reset --yes            # 관리자 비밀번호 분실 복구\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -520,6 +631,16 @@ def build_parser() -> argparse.ArgumentParser:
     dst.add_argument("deployment_id")
     dst.add_argument("--json", action="store_true")
     dst.set_defaults(func=cmd_deploy_status)
+
+    adm = sub.add_parser("admin", help="관리자 계정 복구").add_subparsers(dest="cmd", required=True)
+    ar = adm.add_parser("reset", help="관리자 비밀번호 분실 복구 (초기화)")
+    ar.add_argument("--db", default=None,
+                    help="오프라인 모드: Hub DB 파일 경로 (기본 $HUB_DB_PATH 또는 ./data/hub.db)")
+    ar.add_argument("--token", default=None,
+                    help="복구 토큰 (기본 $HUB_ADMIN_RESET_TOKEN). 서버가 루프백이 아닐 때 필요")
+    ar.add_argument("--yes", action="store_true", help="확인 없이 실행")
+    ar.add_argument("--json", action="store_true")
+    ar.set_defaults(func=cmd_admin_reset)
 
     return p
 
