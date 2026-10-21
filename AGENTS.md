@@ -6,7 +6,7 @@
 ## 핵심 원칙
 
 1. **기존 Docker 서비스 보호 최우선.** 컨테이너/볼륨/이미지/네트워크/포트를 승인 없이 변경하지 않는다. `docker system prune` 등 정리 명령 금지.
-2. Phase 1 코드베이스에서 배포 실행 경로는 `HUB_ENABLE_DEPLOY=false` 잠금 상태다. 잠금을 해제하려면 사용자 승인과 docs/SECURITY.md 확인 필요.
+2. 코드베이스에서 배포 실행 경로는 `HUB_ENABLE_DEPLOY=false` 잠금 상태가 기본이다. 잠금을 해제하려면 사용자 승인과 docs/SECURITY.md 확인 필요하다. 잠금이 열려 있어도 배포 실행기는 화이트리스트 작업(compose config/up/down + 헬스체크)만 수행하며, 임의 셸 실행 경로는 없다. 모든 배포는 감사 로그에 기록된다.
 3. 관리 시스템의 Docker 접근은 `backend/app/docker_client.py` 하나로 통제된다. 다른 위치에서 Docker SDK/CLI 직접 호출을 추가하지 않는다.
 4. 임의 셸 실행 API/엔드포인트를 추가하지 않는다.
 5. 서비스 정의는 `schemas/service.schema.v1.json` (schema_version 1)을 따른다. 시크릿 값은 service.yaml에 넣지 않는다.

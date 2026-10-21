@@ -47,6 +47,10 @@
 - 모든 API 오류 응답에 Docker 소켓 경로, 호스트 파일 경로 등 내부 정보 미포함.
 - 배포 실행기는 작업 디렉터리 외 경로 접근 불가(경로 정규화 + 서비스 루트 제한).
 - service.yaml에 시크릿 필드 자체를 금지(스키마 검증 단계에서 차단).
+- 배포 실행 경로는 `HUB_ENABLE_DEPLOY` 기본 `false`로 잠긴다. 잠금 시 `POST /deployments`
+  는 항상 `503 deploy_disabled`이며, 실행기 자체도 게이트를 재확인한다(방어 심층).
+- `docker_client.py`의 변경 함수(`compose_up`/`compose_down`)는 `allow_mutations=True`가
+  아니면 `PermissionError`를 낸다. 인자는 리스트로만 전달되며 `shell=True`/`sh -c` 경로가 없다.
 
 ## 수용 불가 구조 (명시)
 

@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     monitor_interval: int = 15
     monitor_enabled: bool = True          # 테스트에서 비활성화
     enable_deploy: bool = False           # Phase 3 잠금 — 기본 false
+    deploy_allowed_services: list[str] = []   # 비어 있으면 모든 서비스 허용 (게이트 통과 시)
+    deploy_compose_timeout: int = 600     # compose 작업 타임아웃(초)
     docker_socket: str = "/var/run/docker.sock"
 
     # 자원 임계값 (%)
@@ -50,6 +52,12 @@ class Settings(BaseSettings):
     @property
     def loopback_only(self) -> bool:
         return self.bind in ("127.0.0.1", "localhost", "::1")
+
+    def deploy_gate(self) -> tuple[bool, str]:
+        """배포 허용 여부와 사유. 잠금이 기본값이다 (AGENTS.md 규칙 #2)."""
+        if not self.enable_deploy:
+            return False, "배포 기능이 비활성화되어 있습니다 (HUB_ENABLE_DEPLOY=false)"
+        return True, "ok"
 
 
 _settings: Settings | None = None

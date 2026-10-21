@@ -32,8 +32,9 @@
    웹 UI의 Ports & Routing 또는 API `POST /api/v1/ports/reservations`로 예약한다.
 3. **표준 템플릿으로 서비스 디렉터리 생성**
    ```
-   cp -r templates/sample-app /srv/services/<service-id>
+   hub service new <service-id> --dir /srv/services --name "<서비스 이름>"
    ```
+   또는 기존 예시를 복사한다: `cp -r templates/sample-app /srv/services/<service-id>`
    `service.id`는 소문자/숫자/하이픈. 디렉터리 구조는 §7(REQUIREMENTS)을 따른다.
 4. **service.yaml 작성/수정** — 비밀값 절대 금지 (`security.required_env`에 이름만 기록)
 5. **검증**
@@ -47,8 +48,10 @@
    계획의 포트/영향 범위를 검토한다. 다른 서비스가 재시작되면 반드시 사용자에게 알린다.
 7. **배포 실행** (사용자 승인 후)
    ```
-   hub deploy apply <service-id>
+   hub deploy apply <service-id> --yes
    ```
+   배포는 `HUB_ENABLE_DEPLOY=true`에서만 동작한다(기본 잠금). 실행기는 화이트리스트
+   compose 작업만 수행하며 임의 셸 명령을 받지 않는다. 실행 전 승인과 감사 로그를 남긴다.
 8. **배포 후 검증**
    ```
    hub service show <service-id> --json
