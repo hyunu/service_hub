@@ -19,6 +19,8 @@ services:
       HUB_PORT: 8420
       HUB_DB_PATH: /data/hub.db
       HUB_STATUS_CACHE: /data/status.json
+      # 배포 작업 디렉터리 (허브가 배포를 허용하는 범위). 컨테이너 내부 경로.
+      HUB_DEPLOY_WORKDIR: /srv/services
       # 배포 게이트 기본 잠금. 열려면 .env에 HUB_ENABLE_DEPLOY=true (docs/SECURITY.md 확인)
       HUB_ENABLE_DEPLOY: "${HUB_ENABLE_DEPLOY:-false}"
     volumes:
