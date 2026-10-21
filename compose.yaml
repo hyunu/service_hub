@@ -7,9 +7,6 @@
 #   * 관리 포트는 루프백/내부망에서만 접근한다. 외부 노출 시 방화벽 필수.
 name: service-hub
 
-labels:
-  com.hub.self: "true"
-
 services:
   backend:
     build:
@@ -22,7 +19,8 @@ services:
       HUB_PORT: 8420
       HUB_DB_PATH: /data/hub.db
       HUB_STATUS_CACHE: /data/status.json
-      HUB_ENABLE_DEPLOY: "false"
+      # 배포 게이트 기본 잠금. 열려면 .env에 HUB_ENABLE_DEPLOY=true (docs/SECURITY.md 확인)
+      HUB_ENABLE_DEPLOY: "${HUB_ENABLE_DEPLOY:-false}"
     volumes:
       - hub-data:/data
       - ${HUB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
@@ -31,18 +29,17 @@ services:
       # 외부 공개가 필요하면 "127.0.0.1:8420:8420" 또는 내부망 IP로 변경
       - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-8420}:8420"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8420/api/v1/system/status')"]
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8420/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3
     labels:
       com.hub.managed: "true"
+      com.hub.self: "true"
 
   frontend:
     build:
       context: ./frontend
-      args:
-        API_BASE: /api/v1
     image: n100-service-hub-frontend:0.1.0
     container_name: hub-frontend
     restart: unless-stopped
@@ -53,6 +50,7 @@ services:
       - "127.0.0.1:8421:80"      # 프런트엔드는 루프백 전용. 소켓 미마운트.
     labels:
       com.hub.managed: "true"
+      com.hub.self: "true"
 
 volumes:
   hub-data:

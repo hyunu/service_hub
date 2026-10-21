@@ -109,16 +109,19 @@ fi
 cd "$REPO_DIR"
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && [ -f compose.yaml ]; then
   info "docker compose로 Service Hub 기동 시도..."
-  docker compose -f "$REPO_DIR/compose.yaml" up -d --build || \
+  # 설치 시 생성한 $PREFIX/.env 를 사용한다 (HUB_PORT/HUB_BIND/HUB_ENABLE_DEPLOY 반영).
+  # .env 에 값이 없는 키는 compose.yaml 의 기본값(안전한 잠금)을 따른다.
+  docker compose --env-file "$PREFIX/.env" -f "$REPO_DIR/compose.yaml" up -d --build || \
     warn "compose 기동 실패. 로컬 기동으로 대체: uvicorn app.main:app (backend/)"
 else
   warn "compose 대신 로컬 기동을 사용하세요: (cd backend && uv sync && HUB_PORT=$PORT uv run uvicorn app.main:app)"
 fi
 
 # 8. 헬스체크 ----------------------------------------------------------------
-info "헬스체크: http://127.0.0.1:$PORT/api/v1/system/status"
+# /healthz 는 인증이 필요 없는 생존 확인 엔드포인트다.
+info "헬스체크: http://127.0.0.1:$PORT/healthz"
 for _ in $(seq 1 15); do
-  if curl -fsS "http://127.0.0.1:$PORT/api/v1/system/status" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
     info "헬스체크 통과."
     break
   fi
