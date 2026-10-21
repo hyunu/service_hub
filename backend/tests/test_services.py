@@ -114,3 +114,31 @@ def test_service_logs_via_gateway(client, gateway):
     r = client.get("/api/v1/services/ai-platform/logs?tail=10")
     assert r.status_code == 200
     assert any("fake log" in line for line in r.json()["lines"])
+
+
+def test_validate_spec_endpoint_ok(client):
+    body = {
+        "schema_version": 1,
+        "service": {"id": "sample-app", "name": "Sample", "description": "샘플",
+                    "category": "web"},
+        "deployment": {"type": "docker-compose", "compose_file": "compose.yaml"},
+    }
+    r = mutate(client, "POST", "/api/v1/services/validate", json=body)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    assert data["spec"]["service"]["id"] == "sample-app"
+
+
+def test_validate_spec_endpoint_reports_errors(client):
+    body = {"schema_version": 1,
+            "service": {"id": "Bad", "name": "x", "description": "y", "category": "web"},
+            "deployment": {"type": "docker-compose", "compose_file": "compose.yaml"}}
+    r = mutate(client, "POST", "/api/v1/services/validate", json=body)
+    assert r.status_code == 422
+    assert r.json()["code"] in ("invalid_service_id", "spec_validation_failed")
+
+
+def test_validate_spec_endpoint_requires_auth(anon_client):
+    r = anon_client.post("/api/v1/services/validate", json={"schema_version": 1})
+    assert r.status_code in (401, 403)

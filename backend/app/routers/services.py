@@ -166,6 +166,21 @@ def create_service(body: ServiceCreate, db: Session = Depends(get_db),
     return _summary(db, svc)
 
 
+@router.post("/validate")
+def validate_service_spec(payload: dict, db: Session = Depends(get_db)):
+    """service.yaml(dict) 또는 파일 경로를 검증한다. DB에 아무것도 쓰지 않는다."""
+    from ..services.service_spec import SpecError, parse_spec, validate_spec_dict
+
+    try:
+        if isinstance(payload.get("path"), str):
+            spec = parse_spec(payload["path"])
+        else:
+            spec = validate_spec_dict(payload)
+    except SpecError as exc:
+        raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    return {"valid": True, "spec": spec.model_dump(), "errors": []}
+
+
 @router.get("/{service_id}")
 def get_service(service_id: str, db: Session = Depends(get_db)):
     svc = _service_or_404(db, service_id)
