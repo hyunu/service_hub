@@ -109,3 +109,20 @@ def mutate(client: TestClient, method: str, url: str, **kwargs):
     headers = kwargs.pop("headers", {})
     headers["X-CSRF-Token"] = getattr(client, "csrf", "")
     return client.request(method, url, headers=headers, **kwargs)
+
+
+@pytest.fixture()
+def fake_ctx():
+    """배포 계획용 PlanContext 생성 헬퍼 (관찰된 환경을 순수 입력으로 주입)."""
+    from app.services.deploy_plan import PlanContext
+
+    def _make(*, available_env=None, conflicting_ports=None, mem_available_mb=4096,
+              compose_ok=True, current_containers=None):
+        return PlanContext(
+            available_env=available_env if available_env is not None else set(),
+            conflicting_ports=conflicting_ports or set(),
+            mem_available_mb=mem_available_mb,
+            compose_ok=compose_ok,
+            current_containers=current_containers or {},
+        )
+    return _make
