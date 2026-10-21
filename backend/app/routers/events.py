@@ -81,7 +81,8 @@ def _collect_plan_context(db: Session, spec):
 
     conflicting: set[int] = set()
     for item in build_registry(db):
-        if item.get("in_use") and item.get("host_port"):
+        # 실제 점유된 포트와, 다른 서비스가 예약한 포트 모두 충돌로 본다.
+        if item.get("host_port") and (item.get("in_use") or item.get("reserved")):
             conflicting.add(item["host_port"])
 
     gateway = get_gateway()
@@ -136,9 +137,80 @@ def plan_deployment(payload: dict, db: Session = Depends(get_db),
     return plan
 
 
-@deploy_router.post("")
-def create_deployment():
-    _deploy_disabled()
+@deploy_router.post("", status_code=202)
+def create_deployment(payload: dict, db: Session = Depends(get_db),
+                      actor: str = Depends(get_read_actor)):
+    """배포 실행 — HUB_ENABLE_DEPLOY=true 에서만. 화이트리스트 compose 작업만 수행한다.
+
+    CLI는 `{"service_id": ..., "confirmed": true}`로 POST한다(스펙은 서버에서 해석).
+    직접 호출 시에는 `{"spec": <service.yaml dict>}` 또는 스펙 dict를 보낸다.
+    """
+    from ..dependencies import build_deploy_runner
+    from ..services.deploy_plan import build_plan
+    from ..services.deploy_runner import DeploymentBusy
+    from ..services.service_spec import SpecError, parse_spec, validate_spec_dict
+
+    settings = get_settings()
+    ok, _reason = settings.deploy_gate()
+    if not ok:
+        _deploy_disabled()
+
+    spec_dict = payload.get("spec") or payload.get("service_definition")
+    if spec_dict is None:
+        # CLI의 service_id 기반 호출: 작업 디렉터리의 service.yaml을 해석한다
+        from ..dependencies import build_deploy_runner as _b  # noqa: F401
+        service_id = payload.get("service_id")
+        if not service_id:
+            raise HubError(status_code=422, detail="spec 또는 service_id가 필요합니다",
+                           code="spec_required")
+        import os
+        base = os.environ.get("HUB_DEPLOY_WORKDIR") or "./services-local"
+        try:
+            spec = parse_spec(f"{base.rstrip('/')}/{service_id}")
+        except SpecError as exc:
+            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    else:
+        try:
+            if isinstance(spec_dict, str):
+                spec = parse_spec(spec_dict)
+            else:
+                spec = validate_spec_dict(spec_dict)
+        except SpecError as exc:
+            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+
+    ctx = _collect_plan_context(db, spec)
+    plan = build_plan(spec, ctx)
+    if plan["result"] != "READY":
+        raise HubError(
+            status_code=409,
+            detail="배포 계획이 READY가 아닙니다: " +
+                   "; ".join(i["message"] for i in plan["impact"]),
+            code="plan_not_ready")
+
+    runner = build_deploy_runner()
+    try:
+        runner.acquire(spec.service.id)
+    except DeploymentBusy as exc:
+        raise HubError(status_code=409, detail=str(exc),
+                       code="deployment_busy") from exc
+
+    record_audit(db, actor, "deploy.apply", target=spec.service.id,
+                 detail={"result": plan["result"]})
+    db.commit()
+
+    try:
+        dep = runner.run(spec, ctx, actor=actor)
+    except PermissionError as exc:
+        raise HubError(status_code=503, detail=str(exc),
+                       code="deploy_disabled") from exc
+    except ValueError as exc:
+        raise HubError(status_code=409, detail=str(exc), code="plan_not_ready") from exc
+    finally:
+        runner.release(spec.service.id)
+
+    return {"deployment_id": dep.id, "service_id": dep.service_id, "status": dep.status,
+            "error": dep.error, "started_at": dep.started_at,
+            "finished_at": dep.finished_at}
 
 
 @deploy_router.get("/{deployment_id}/logs")

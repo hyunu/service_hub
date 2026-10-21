@@ -1,6 +1,8 @@
 """테스트 픽스처: 임시 DB + Fake Docker 게이트웨이 + 인증 헬퍼."""
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -62,7 +64,23 @@ def gateway() -> FakeDockerGateway:
 @pytest.fixture()
 def app_factory(settings, gateway):
     def _make(gw: FakeDockerGateway | None = None, s: Settings | None = None,
-              admin: bool = False) -> TestClient:
+              admin: bool = False, *, enable_deploy: bool = False,
+              deploy_workdir: str | None = None,
+              gateway_allow_mutations: bool = False) -> TestClient:
+        # 배포 실행 테스트: 게이트 개방 + 변경 허용 게이트웨이 + 작업 디렉터리
+        if enable_deploy and s is None:
+            s = Settings(
+                db_path=settings.db_path,
+                status_cache=settings.status_cache,
+                monitor_enabled=False,
+                enable_deploy=True,
+                _env_file=None,
+            )
+            set_settings(s)
+        if gw is None and gateway_allow_mutations:
+            gw = FakeDockerGateway(allow_mutations=True)
+        if deploy_workdir is not None:
+            os.environ["HUB_DEPLOY_WORKDIR"] = deploy_workdir
         application = create_app(s or settings, gateway=gw or gateway)
         init_db()
         client = TestClient(application)

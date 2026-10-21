@@ -44,3 +44,67 @@ def test_apply_still_locked_when_deploy_disabled(client):
                json={"service_id": "sample-app", "spec": SPEC_BODY})
     assert r.status_code == 503
     assert r.json()["code"] == "deploy_disabled"
+
+
+def test_apply_succeeds_when_enabled(app_factory, tmp_path):
+    from conftest import make_fake_container
+    (tmp_path / "sample-app").mkdir()
+    (tmp_path / "sample-app" / "compose.yaml").write_text("services: {}\n",
+                                                          encoding="utf-8")
+    client = app_factory(admin=True, enable_deploy=True,
+                         deploy_workdir=str(tmp_path),
+                         gateway_allow_mutations=True,
+                         gw=None)
+    # 배포 후 기동된 것으로 보이는 컨테이너를 게이트웨이에 추가한다
+    from app.dependencies import get_gateway
+    get_gateway().containers.append(
+        make_fake_container("c1", "sample-app-app", project="sample-app",
+                            service="app", running=True))
+    try:
+        r = mutate(client, "POST", "/api/v1/deployments", json={"spec": SPEC_BODY})
+        assert r.status_code == 202, r.text
+        dep = r.json()
+        assert dep["status"] in ("succeeded", "failed")
+        assert dep["deployment_id"].startswith("dep-")
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_apply_requires_csrf(app_factory, tmp_path):
+    (tmp_path / "sample-app").mkdir()
+    (tmp_path / "sample-app" / "compose.yaml").write_text("services: {}\n",
+                                                          encoding="utf-8")
+    client = app_factory(admin=True, enable_deploy=True,
+                         deploy_workdir=str(tmp_path),
+                         gateway_allow_mutations=True)
+    try:
+        # CSRF 헤더 없이 POST → 차단
+        r = client.post("/api/v1/deployments", json={"spec": SPEC_BODY})
+        assert r.status_code == 403
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_apply_plan_not_ready_409(app_factory, tmp_path):
+    (tmp_path / "sample-app").mkdir()
+    spec = {**SPEC_BODY, "endpoints": [
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 8420,
+         "container": "app", "container_port": 3000}]}
+    client = app_factory(admin=True, enable_deploy=True,
+                         deploy_workdir=str(tmp_path),
+                         gateway_allow_mutations=True)
+    try:
+        # 8420 포트를 다른 서비스가 예약 → 포트 충돌로 계획 BLOCKED → 409
+        from app.db import get_session_factory
+        from app.models import PortReservation, Service
+        with get_session_factory()() as s:
+            s.add(Service(id="other-svc", name="Other", description="d", category="web"))
+            s.flush()
+            s.add(PortReservation(service_id="other-svc", host_port=8420,
+                                  protocol="tcp", container_port=3000))
+            s.commit()
+        r = mutate(client, "POST", "/api/v1/deployments", json={"spec": spec})
+        assert r.status_code == 409, r.text
+        assert r.json()["code"] == "plan_not_ready"
+    finally:
+        client.__exit__(None, None, None)

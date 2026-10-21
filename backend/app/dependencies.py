@@ -20,3 +20,28 @@ def get_gateway() -> DockerGateway:
 def set_gateway(gateway: DockerGateway | None) -> None:
     global _gateway
     _gateway = gateway
+
+
+def build_deploy_runner():
+    """설정 기반 배포 실행기 생성 (Phase 3).
+
+    잠금 게이트는 실행기 내부에서 다시 강제된다 (방어 심층).
+    작업 디렉터리는 HUB_DEPLOY_WORKDIR 또는 서비스 경로 규칙을 따른다.
+    """
+    import os
+
+    from .config import get_settings
+    from .services.deploy_runner import DeployRunner
+
+    settings = get_settings()
+
+    def resolver(service_id: str) -> str:
+        base = os.environ.get("HUB_DEPLOY_WORKDIR") or "./services-local"
+        return f"{base.rstrip('/')}/{service_id}"
+
+    gateway = get_gateway()
+    # 실제 배포 경로에서만 변경 권한을 부여한다 (잠금 시에는 무의미).
+    if hasattr(gateway, "_allow_mutations"):
+        gateway._allow_mutations = settings.enable_deploy
+    return DeployRunner(gateway=gateway, workdir_resolver=resolver,
+                        enable_deploy=settings.enable_deploy)
