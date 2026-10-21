@@ -243,7 +243,9 @@ export default function Resources() {
         <Card>
           <CardHeader className="pb-1">
             <CardTitle>네트워크</CardTitle>
-            <CardDescription>인터페이스별 수신/송신 추이 (누적 값은 인터페이스 표 참조)</CardDescription>
+            <CardDescription>
+              인터페이스별 수신/송신 추이 (누적 값은 아래 표 참조 · 허브 컨테이너 네트워크 기준)
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
@@ -301,6 +303,14 @@ export default function Resources() {
                 <InfoRow label="커널" value={host.system.kernel ?? "—"} />
                 <InfoRow label="부팅 시각" value={formatDateTime(host.system.booted_at)} />
                 <InfoRow label="가동 시간" value={formatUptime(host.system.uptime_seconds)} />
+                <InfoRow
+                  label="부하 평균 (1/5/15분)"
+                  value={
+                    host.cpu.load_avg && host.cpu.load_avg.length > 0
+                      ? host.cpu.load_avg.map((v) => v.toFixed(2)).join(" / ")
+                      : "N/A"
+                  }
+                />
                 <InfoRow
                   label="CPU 온도"
                   value={host.system.cpu_temp_c != null ? `${host.system.cpu_temp_c}°C` : "N/A"}

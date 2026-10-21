@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     webauthn_origin: str = ""       # 예: https://n100-pve-dev.tail7d413d.ts.net
     webauthn_timeout_ms: int = 60000
 
+    # 컨테이너 안에서 platform.node()는 컨테이너 ID를 반환한다.
+    # 호스트명을 정확히 표시하려면 배포 시 HUB_HOST_HOSTNAME을 주입한다.
+    host_hostname: str = ""
+
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     @property

@@ -229,13 +229,22 @@ class Monitor:
 
 def resrc_sample(host: resrc.HostMetrics):
     from .models import ResourceSample
+    # 네트워크 누적값(루프백 제외). 수집 실패로 인터페이스가 없으면 None(미지)로 둔다.
+    ifaces = host.net_ifaces or []
+    if ifaces:
+        net_rx = sum(int(i.get("rx_bytes") or 0) for i in ifaces if i.get("iface") != "lo")
+        net_tx = sum(int(i.get("tx_bytes") or 0) for i in ifaces if i.get("iface") != "lo")
+    else:
+        net_rx = net_tx = None
     return ResourceSample(ts=_now(), scope="host", scope_id=None,
                           cpu_percent=host.cpu_percent, mem_used_mb=host.mem_used_mb,
-                          mem_limit_mb=host.mem_total_mb, net_rx_bytes=None, net_tx_bytes=None,
+                          mem_limit_mb=host.mem_total_mb,
+                          net_rx_bytes=net_rx, net_tx_bytes=net_tx,
                           extras={"swap_used_mb": host.swap_used_mb,
                                   "disk_used_gb": host.disk_root_used_gb,
                                   "disk_total_gb": host.disk_root_total_gb,
-                                  "disk_percent": host.disk_root_percent})
+                                  "disk_percent": host.disk_root_percent,
+                                  "load_avg": host.load_avg})
 
 
 def _container_sample(cid: str, st: dict):

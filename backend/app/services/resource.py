@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import os
 import platform
 import time
 from collections import deque
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 
 import psutil
 
-from ..config import Settings
+from ..config import Settings, get_settings
 from ..docker_client import DockerGateway
 
 
@@ -45,6 +46,7 @@ class HostMetrics:
     uptime_seconds: float
     temperature_c: float | None
     uptime_human: str
+    load_avg: list[float] | None = None
 
 
 def human_uptime(seconds: float) -> str:
@@ -90,6 +92,18 @@ def collect_host() -> HostMetrics:
     except Exception:
         pass
 
+    # 컨테이너 안에서는 오버레이 루트("/")가 disk_partitions 목록에 없다.
+    # 이 경우 실제 데이터가 있는 가장 큰 파일시스템을 루트로 간주한다
+    # (예: /data, /srv/services 바인드 마운트 → 동일한 78GB 볼륨).
+    # 이 fallback이 없으면 디스크 지표가 null이 되어 추이 그래프가 N/A가 된다.
+    if root_total is None:
+        candidates = [fs for fs in filesystems if fs.get("total_gb")]
+        if candidates:
+            biggest = max(candidates, key=lambda fs: fs["total_gb"] or 0)
+            root_used = biggest.get("used_gb")
+            root_total = biggest.get("total_gb")
+            root_pct = biggest.get("percent")
+
     net_ifaces = []
     try:
         counters = psutil.net_io_counters(pernic=True)
@@ -111,7 +125,15 @@ def collect_host() -> HostMetrics:
     except Exception:
         pass
 
+    # 호스트명: 컨테이너 안에서는 platform.node()가 컨테이너 ID를 반환한다.
+    # compose에서 HUB_HOST_HOSTNAME을 주입하면 실제 호스트명을 쓸 수 있다.
+    hostname = get_settings().host_hostname or platform.node()
+
     uptime = time.time() - boot
+    try:
+        load_avg: list[float] | None = [round(v, 2) for v in os.getloadavg()]
+    except (OSError, AttributeError):
+        load_avg = None
     return HostMetrics(
         cpu_percent=cpu_percent,
         cpu_cores=psutil.cpu_count(logical=True) or 1,
@@ -127,13 +149,14 @@ def collect_host() -> HostMetrics:
         disk_root_total_gb=root_total,
         disk_root_percent=root_pct,
         net_ifaces=net_ifaces,
-        hostname=platform.node(),
+        hostname=hostname,
         os_name=f"{platform.system()} {platform.release()}",
         kernel=platform.version(),
         boot_at=datetime.fromtimestamp(boot, tz=timezone.utc).isoformat(),
         uptime_seconds=uptime,
         temperature_c=temperature,
         uptime_human=human_uptime(uptime),
+        load_avg=load_avg,
     )
 
 

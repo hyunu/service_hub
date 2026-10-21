@@ -122,3 +122,73 @@ def test_monitor_writes_status_cache(client, gateway, settings):
 def test_uptime_human():
     assert human_uptime(86400 + 3600 + 120) == "1 days 1 hours 2 min"
     assert human_uptime(300) == "5 min"
+
+
+def test_collect_host_root_disk_fallback(monkeypatch):
+    """컨테이너처럼 "/" 마운트가 없어도 가장 큰 파일시스템을 루트로 쓴다.
+
+    이 fallback이 없으면 디스크 지표가 None이 되어 추이 그래프가 N/A가 된다.
+    """
+    from types import SimpleNamespace
+
+    from app.services import resource
+
+    class Part:
+        def __init__(self, mountpoint: str) -> None:
+            self.mountpoint = mountpoint
+            self.device = "/dev/mapper/ubuntu--vg-ubuntu--lv"
+
+    usage = {
+        "/data": SimpleNamespace(total=100 * 1024**3, used=20 * 1024**3,
+                                 free=80 * 1024**3, percent=20.0),
+        "/srv/services": SimpleNamespace(total=100 * 1024**3, used=20 * 1024**3,
+                                         free=80 * 1024**3, percent=20.0),
+    }
+    monkeypatch.setattr(resource.psutil, "cpu_percent",
+                        lambda interval=None, percpu=False: ([0.0, 0.0] if percpu else 0.0))
+    monkeypatch.setattr(resource.psutil, "virtual_memory", lambda: SimpleNamespace(
+        total=2 * 1024**3, used=1 * 1024**3, available=1 * 1024**3, percent=50.0))
+    monkeypatch.setattr(resource.psutil, "swap_memory",
+                        lambda: SimpleNamespace(used=0, total=0))
+    monkeypatch.setattr(resource.psutil, "disk_partitions",
+                        lambda all=False: [Part("/data"), Part("/srv/services")])
+    monkeypatch.setattr(resource.psutil, "disk_usage", lambda mp: usage[mp])
+    monkeypatch.setattr(resource.psutil, "net_io_counters", lambda pernic=True: {})
+    monkeypatch.setattr(resource.psutil, "sensors_temperatures", lambda: {}, raising=False)
+    monkeypatch.setattr(resource.psutil, "boot_time", lambda: 0)
+    monkeypatch.setattr(resource.os, "getloadavg", lambda: (0.01, 0.02, 0.03))
+
+    host = resource.collect_host()
+    assert host.disk_root_total_gb == 100.0
+    assert host.disk_root_used_gb == 20.0
+    assert host.disk_root_percent == 20.0
+    assert host.load_avg == [0.01, 0.02, 0.03]
+
+
+def test_host_hostname_can_be_injected(monkeypatch):
+    """컨테이너 hostname(컨테이너 ID) 대신 HUB_HOST_HOSTNAME을 쓴다."""
+    from app.config import Settings, get_settings, set_settings
+    from app.services.resource import collect_host
+
+    prev = get_settings()
+    set_settings(Settings(_env_file=None, host_hostname="n100-pve-dev"))
+    try:
+        assert collect_host().hostname == "n100-pve-dev"
+    finally:
+        set_settings(prev)
+
+
+def test_host_samples_expose_disk_and_network(client):
+    """samples가 디스크/네트워크/부하 필드를 최상위로 노출해야 한다.
+
+    extras에만 있으면 프런트엔드 추이 그래프가 N/A가 된다(계약 불일치 회귀 방지).
+    """
+    client.app.state.monitor.run_once()
+    body = client.get("/api/v1/resources/host").json()
+    assert body["samples"], "host 샘플이 기록되어야 한다"
+    sample = body["samples"][-1]
+    for key in ("disk_used_gb", "disk_total_gb", "disk_percent",
+                "net_rx_bytes", "net_tx_bytes", "load_avg"):
+        assert key in sample, f"{key} 누락"
+    assert sample["disk_total_gb"] is not None, "디스크 값이 측정되어야 한다"
+    assert "load_avg" in body["cpu"]

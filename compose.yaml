@@ -27,6 +27,9 @@ services:
       # 예: HUB_WEBAUTHN_RP_ID=<tailnet FQDN>, HUB_WEBAUTHN_ORIGIN=https://<tailnet FQDN>
       HUB_WEBAUTHN_RP_ID: "${HUB_WEBAUTHN_RP_ID:-}"
       HUB_WEBAUTHN_ORIGIN: "${HUB_WEBAUTHN_ORIGIN:-}"
+      # 컨테이너 안에서는 platform.node()가 컨테이너 ID를 반환한다.
+      # 실제 호스트명을 표시하려면 .env에 HUB_HOST_HOSTNAME=<호스트명>을 넣는다.
+      HUB_HOST_HOSTNAME: "${HUB_HOST_HOSTNAME:-}"
     volumes:
       - hub-data:/data
       - ${HUB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock

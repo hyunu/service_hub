@@ -71,7 +71,8 @@ def host_resources(db: Session = Depends(get_db)):
     return {
         "cpu": {"percent": host.cpu_percent if host else None,
                 "cores": host.cpu_cores if host else None,
-                "per_core": host.cpu_per_core if host else None},
+                "per_core": host.cpu_per_core if host else None,
+                "load_avg": host.load_avg if host else None},
         "memory": {"total_mb": host.mem_total_mb if host else None,
                    "used_mb": host.mem_used_mb if host else None,
                    "available_mb": host.mem_available_mb if host else None,
@@ -96,8 +97,18 @@ def host_resources(db: Session = Depends(get_db)):
                    "temperature_c": temperature_c,
                    "cpu_temp_c": temperature_c},
         "warnings": warnings,
-        "samples": [{"ts": s.ts, "cpu_percent": s.cpu_percent,
-                     "mem_used_mb": s.mem_used_mb, "extras": s.extras}
+        "samples": [{"ts": s.ts,
+                     "cpu_percent": s.cpu_percent,
+                     "mem_used_mb": s.mem_used_mb,
+                     # 프런트엔드 계약: 추이 그래프는 최상위 필드를 읽는다.
+                     # (extras에만 넣으면 디스크/네트워크 추이가 N/A가 된다)
+                     "disk_used_gb": (s.extras or {}).get("disk_used_gb"),
+                     "disk_total_gb": (s.extras or {}).get("disk_total_gb"),
+                     "disk_percent": (s.extras or {}).get("disk_percent"),
+                     "net_rx_bytes": s.net_rx_bytes,
+                     "net_tx_bytes": s.net_tx_bytes,
+                     "load_avg": (s.extras or {}).get("load_avg"),
+                     "extras": s.extras}
                     for s in samples],
         "collection_error": error,
     }
