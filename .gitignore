@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+cli/.venv/
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+.vite/
+
+# 데이터/환경 (Git 금지)
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+services-local/
+
+# 백업/로그
+backup/
+logs/
+*.log
+
+# OS
+.DS_Store
