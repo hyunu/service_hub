@@ -32,7 +32,8 @@ services:
     group_add:
       - "${HUB_DOCKER_GID:-988}"
     ports:
-      # 외부 공개가 필요하면 "127.0.0.1:8420:8420" 또는 내부망 IP로 변경
+      # 바인드 주소는 HUB_BIND 를 따른다. 기본은 루프백(127.0.0.1).
+      # tailnet 전용 공개는 HUB_BIND=<tailscale IP> 로 설정한다 (docs/SECURITY.md).
       - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-8420}:8420"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8420/healthz')"]
@@ -53,7 +54,9 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8421:80"      # 프런트엔드는 루프백 전용. 소켓 미마운트.
+      # 프런트엔드는 HUB_BIND 를 따른다. Docker 소켓은 마운트하지 않는다.
+      # 기본 루프백. tailnet 전용 공개는 HUB_BIND=<tailscale IP> 로 설정한다.
+      - "${HUB_BIND:-127.0.0.1}:8421:80"
     labels:
       com.hub.managed: "true"
       com.hub.self: "true"
