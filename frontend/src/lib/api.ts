@@ -707,6 +707,25 @@ function parseBody(text: string): unknown {
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * 백엔드는 목록형 응답을 `{"items": [...]}` 봉투로 감싸는 경우가 많고
+ * (일부는 `{"warnings": [...]}`), 개발용 mock 은 맨 배열을 돌려준다.
+ * 두 형태를 모두 허용해 항상 배열로 정규화한다.
+ *
+ * 이 정규화가 없으면 실제 백엔드 응답에서 `items.slice is not a function`
+ * 처럼 렌더가 깨진다 (mock 테스트로는 드러나지 않는다).
+ */
+function unwrapList<T>(raw: unknown, keys: string[] = ["items"]): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (raw && typeof raw === "object") {
+    for (const k of keys) {
+      const v = (raw as Record<string, unknown>)[k];
+      if (Array.isArray(v)) return v as T[];
+    }
+  }
+  return [];
+}
+
 async function refreshCsrfFromSession(): Promise<void> {
   try {
     const res = await fetch(`${API_PREFIX}/auth/session`, {
@@ -888,7 +907,9 @@ export function fetchServices(
   query?: ServiceListQuery,
   signal?: AbortSignal,
 ): Promise<ServiceListItem[]> {
-  return get<ServiceListItem[]>("/services", { ...query }, signal);
+  return get<unknown>("/services", { ...query }, signal).then((r) =>
+    unwrapList<ServiceListItem>(r),
+  );
 }
 
 export function createService(body: ServiceCreatePayload): Promise<ServiceListItem> {
@@ -916,14 +937,18 @@ export function fetchServiceContainers(
   id: string,
   signal?: AbortSignal,
 ): Promise<ContainerListItem[]> {
-  return get<ContainerListItem[]>(`/services/${encodeURIComponent(id)}/containers`, undefined, signal);
+  return get<unknown>(`/services/${encodeURIComponent(id)}/containers`, undefined, signal).then(
+    (r) => unwrapList<ContainerListItem>(r),
+  );
 }
 
 export function fetchServiceEndpoints(
   id: string,
   signal?: AbortSignal,
 ): Promise<ServiceEndpoint[]> {
-  return get<ServiceEndpoint[]>(`/services/${encodeURIComponent(id)}/endpoints`, undefined, signal);
+  return get<unknown>(`/services/${encodeURIComponent(id)}/endpoints`, undefined, signal).then(
+    (r) => unwrapList<ServiceEndpoint>(r),
+  );
 }
 
 export function fetchServiceLogs(
@@ -939,7 +964,9 @@ export function fetchServiceEvents(
   limit = 100,
   signal?: AbortSignal,
 ): Promise<HubEvent[]> {
-  return get<HubEvent[]>(`/services/${encodeURIComponent(id)}/events`, { limit }, signal);
+  return get<unknown>(`/services/${encodeURIComponent(id)}/events`, { limit }, signal).then((r) =>
+    unwrapList<HubEvent>(r),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -950,7 +977,9 @@ export function fetchContainers(
   query?: ContainerQuery,
   signal?: AbortSignal,
 ): Promise<ContainerListItem[]> {
-  return get<ContainerListItem[]>("/containers", { ...query }, signal);
+  return get<unknown>("/containers", { ...query }, signal).then((r) =>
+    unwrapList<ContainerListItem>(r),
+  );
 }
 
 export function fetchContainer(id: string, signal?: AbortSignal): Promise<ContainerDetail> {
@@ -962,7 +991,7 @@ export function fetchContainer(id: string, signal?: AbortSignal): Promise<Contai
 /* ------------------------------------------------------------------ */
 
 export function fetchOrphans(signal?: AbortSignal): Promise<OrphanItem[]> {
-  return get<OrphanItem[]>("/orphans", undefined, signal);
+  return get<unknown>("/orphans", undefined, signal).then((r) => unwrapList<OrphanItem>(r));
 }
 
 export function attachOrphan(cid: string, body: AttachPayload): Promise<unknown> {
@@ -978,7 +1007,7 @@ export function reviewOrphan(cid: string, body: ReviewPayload): Promise<unknown>
 /* ------------------------------------------------------------------ */
 
 export function fetchPorts(signal?: AbortSignal): Promise<PortEntry[]> {
-  return get<PortEntry[]>("/ports", undefined, signal);
+  return get<unknown>("/ports", undefined, signal).then((r) => unwrapList<PortEntry>(r));
 }
 
 export async function fetchAvailablePorts(
@@ -1022,15 +1051,22 @@ export function fetchHostResources(signal?: AbortSignal): Promise<HostResources>
 export function fetchContainerResources(
   signal?: AbortSignal,
 ): Promise<ContainerResourceRow[]> {
-  return get<ContainerResourceRow[]>("/resources/containers", undefined, signal);
+  return get<unknown>("/resources/containers", undefined, signal).then((r) =>
+    unwrapList<ContainerResourceRow>(r),
+  );
 }
 
 export function fetchServiceResources(signal?: AbortSignal): Promise<ServiceResourceRow[]> {
-  return get<ServiceResourceRow[]>("/resources/services", undefined, signal);
+  return get<unknown>("/resources/services", undefined, signal).then((r) =>
+    unwrapList<ServiceResourceRow>(r),
+  );
 }
 
 export function fetchResourceWarnings(signal?: AbortSignal): Promise<ResourceWarning[]> {
-  return get<ResourceWarning[]>("/resources/warnings", undefined, signal);
+  // 백엔드는 {"warnings": [...], "thresholds": {...}} 형태로 돌려준다.
+  return get<unknown>("/resources/warnings", undefined, signal).then((r) =>
+    unwrapList<ResourceWarning>(r, ["warnings", "items"]),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1041,7 +1077,8 @@ export function fetchDeployments(
   query?: DeploymentListQuery,
   signal?: AbortSignal,
 ): Promise<Deployment[]> {
-  return get<Deployment[]>("/deployments", { ...query }, signal)
+  return get<unknown>("/deployments", { ...query }, signal)
+    .then((r) => unwrapList<Deployment>(r))
     .then((rows) => rows.map(normalizeDeployment));
 }
 
@@ -1085,11 +1122,11 @@ export function fetchDeploymentLogs(
 /* ------------------------------------------------------------------ */
 
 export function fetchEvents(query?: EventQuery, signal?: AbortSignal): Promise<HubEvent[]> {
-  return get<HubEvent[]>("/events", { ...query }, signal);
+  return get<unknown>("/events", { ...query }, signal).then((r) => unwrapList<HubEvent>(r));
 }
 
 export function fetchAuditLogs(limit = 100, signal?: AbortSignal): Promise<AuditLog[]> {
-  return get<AuditLog[]>("/audit-logs", { limit }, signal);
+  return get<unknown>("/audit-logs", { limit }, signal).then((r) => unwrapList<AuditLog>(r));
 }
 
 /** 원시 검색 응답 → 그룹화 결과 (문자열/�터 모두 허용) */
