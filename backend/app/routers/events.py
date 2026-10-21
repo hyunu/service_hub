@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import AuditLog, Deployment, DeploymentStep, Event
-from ..security import HubError, require_auth
+from ..security import HubError, get_read_actor, require_auth
+from ..services.events import record_audit
 
 router = APIRouter(tags=["events"], dependencies=[Depends(require_auth)])
 deploy_router = APIRouter(prefix="/deployments", tags=["deployments"],
@@ -72,9 +73,67 @@ def get_deployment(deployment_id: str, db: Session = Depends(get_db)):
                        "detail": s.detail, "at": s.at} for s in steps]}
 
 
+def _collect_plan_context(db: Session, spec):
+    """관찰된 환경을 모아 PlanContext를 만든다 (DB + 게이트웨이 읽기 전용)."""
+    from ..dependencies import get_gateway
+    from ..services.deploy_plan import PlanContext
+    from ..services.ports import build_registry
+
+    conflicting: set[int] = set()
+    for item in build_registry(db):
+        if item.get("in_use") and item.get("host_port"):
+            conflicting.add(item["host_port"])
+
+    gateway = get_gateway()
+    current: dict[str, dict] = {}
+    snapshots = gateway.list_containers() or []
+    project = getattr(spec.deployment, "project_name", None) or spec.service.id
+    for snap in snapshots:
+        if snap.compose_project == project and snap.compose_service:
+            current[snap.compose_service] = {"image": snap.image, "state": snap.state}
+
+    # 필수 환경 변수는 서버 환경변수에서 존재 여부만 확인 (값은 노출하지 않음)
+    import os
+    available_env = set(os.environ)
+
+    mem_available = None
+    try:
+        from ..services.resource import collect_host
+        host = collect_host()
+        mem_available = getattr(host, "mem_available_mb", None)
+    except Exception:
+        mem_available = None
+
+    return PlanContext(available_env=available_env, conflicting_ports=conflicting,
+                       mem_available_mb=mem_available, compose_ok=True,
+                       current_containers=current)
+
+
 @deploy_router.post("/plan")
-def plan_deployment():
-    _deploy_disabled()   # Phase 3에서 구현 — 현재는 항상 차단
+def plan_deployment(payload: dict, db: Session = Depends(get_db),
+                    actor: str = Depends(get_read_actor)):
+    """배포 계획 생성 — 컨테이너를 변경하지 않는다.
+
+    CLI는 `{"service_definition": <service.yaml dict>}`로 POST한다.
+    직접 호출 시에는 스펙 dict를 그대로 보내도 된다.
+    """
+    from ..services.deploy_plan import build_plan
+    from ..services.service_spec import SpecError, parse_spec, validate_spec_dict
+
+    spec_dict = payload.get("service_definition", payload)
+    try:
+        if isinstance(spec_dict, str):
+            spec = parse_spec(spec_dict)
+        else:
+            spec = validate_spec_dict(spec_dict)
+    except SpecError as exc:
+        raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    ctx = _collect_plan_context(db, spec)
+    plan = build_plan(spec, ctx)
+    record_audit(db, actor, "deploy.plan", target=spec.service.id,
+                 detail={"result": plan["result"]})
+    db.commit()
+    return plan
 
 
 @deploy_router.post("")
