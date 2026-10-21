@@ -382,149 +382,28 @@ git commit -m "feat(backend): 서비스 스펙 검증 API 추가 (POST /services
 
 ---
 
-## Task 3: CLI `hub service validate` 실구현
+## Task 3: CLI `hub service validate` — ✅ 이미 구현됨 (검증만)
 
-**Files:**
-- Modify: `cli/hub_cli/main.py`
-- Test: `cli/tests/test_cli_deploy.py` (신규)
+**실행 중 발견:** CLI에 `cmd_service_validate`가 이미 존재한다(`cli/hub_cli/main.py:182`).
+JSON Schema(draft-07)로 검증하며, 파일 없음은 `EXIT_NOTFOUND`(5)를 반환한다.
+따라서 **새로 구현하지 않는다.** 대신 다음만 수행:
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [ ] **Step 1: 기존 동작 확인**
 
-Create `cli/tests/test_cli_deploy.py`:
+Run: `cd cli && uv run pytest tests/test_cli.py -q`
+Expected: PASS (기존 14개)
 
-```python
-import textwrap
-from pathlib import Path
+- [ ] **Step 2: 백엔드 검증 API와 병행 사용 문서화**
 
-from hub_cli.main import main
+CLI는 로컬 jsonschema 검증, 백엔드는 Pydantic 검증(§6). 두 경로 모두
+`schemas/service.schema.v1.json` / `service_spec.py` 규칙을 따른다.
+새 CLI 테스트는 추가하지 않는다(기존 커버리지 유지).
 
-VALID_YAML = textwrap.dedent("""
-schema_version: 1
-service:
-  id: sample-app
-  name: Sample
-  description: 샘플
-  category: web
-deployment:
-  type: docker-compose
-  compose_file: compose.yaml
-""").strip()
-
-
-def _write(tmp_path):
-    p = tmp_path / "service.yaml"
-    p.write_text(VALID_YAML, encoding="utf-8")
-    return p
-
-
-def test_service_validate_ok(tmp_path, capsys):
-    code = main(["service", "validate", str(_write(tmp_path))])
-    assert code == 0
-    assert "valid" in capsys.readouterr().out.lower() or "OK" in capsys.readouterr().out
-
-
-def test_service_validate_json(tmp_path, capsys):
-    import json
-    code = main(["service", "validate", str(_write(tmp_path)), "--json"])
-    assert code == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["valid"] is True
-
-
-def test_service_validate_bad_id(tmp_path, capsys):
-    p = tmp_path / "service.yaml"
-    p.write_text(VALID_YAML.replace("sample-app", "BAD_ID"), encoding="utf-8")
-    code = main(["service", "validate", str(p)])
-    assert code != 0
-
-
-def test_service_validate_missing_file(tmp_path, capsys):
-    code = main(["service", "validate", str(tmp_path / "nope.yaml")])
-    assert code == 4
-```
-
-- [ ] **Step 2: 테스트 실패 확인**
-
-Run: `cd cli && uv run pytest tests/test_cli_deploy.py -q`
-Expected: FAIL — validate가 스키마 파일 오류/미구현으로 실패하거나 exit code 불일치
-
-- [ ] **Step 3: 최소 구현 작성**
-
-`cli/hub_cli/main.py`의 `_schema_path()` 근처에 로컬 검증 헬퍼를 추가하고
-기존 `cmd_service_validate`를 교체한다. 검증 로직은 백엔드와 동일 규칙을
-CLI에서도 독립 수행한다(네트워크 불필요).
-
-```python
-def _validate_local(path: str) -> dict:
-    """service.yaml을 백엔드 없이 로컬에서 검증한다 (Phase 2)."""
-    import yaml  # PyYAML은 CLI 의존성
-
-    p = Path(path)
-    if p.is_dir():
-        p = p / "service.yaml"
-    if not p.exists():
-        raise CliError(f"service.yaml을 찾을 수 없습니다: {p}", EXIT_REJECTED)
-    data = yaml.safe_load(p.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise CliError("service.yaml 최상위는 매핑이어야 합니다", EXIT_REJECTED)
-    if data.get("schema_version") != 1:
-        raise CliError(
-            f"지원하지 않는 schema_version: {data.get('schema_version')!r} (지원: 1)",
-            EXIT_REJECTED)
-    svc = data.get("service") or {}
-    sid = svc.get("id", "")
-    import re
-    if not re.match(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$", str(sid)):
-        raise CliError(f"서비스 ID 형식이 올바르지 않습니다: {sid!r}", EXIT_REJECTED)
-    for key in ("name", "description", "category"):
-        if not svc.get(key):
-            raise CliError(f"service.{key}가 필요합니다", EXIT_REJECTED)
-    dep = data.get("deployment") or {}
-    if dep.get("type") != "docker-compose" or not dep.get("compose_file"):
-        raise CliError("deployment.type=docker-compose 와 compose_file이 필요합니다",
-                       EXIT_REJECTED)
-    for ep in data.get("endpoints") or []:
-        if ep.get("exposure") == "proxy" and not ep.get("hostname"):
-            raise CliError(f"endpoint '{ep.get('name')}': proxy에는 hostname이 필요합니다",
-                           EXIT_REJECTED)
-    return {"valid": True, "path": str(p), "service_id": sid,
-            "category": svc.get("category"), "errors": []}
-```
-
-기존 `cmd_service_validate`를 다음으로 교체:
-
-```python
-def cmd_service_validate(args: argparse.Namespace) -> None:
-    try:
-        result = _validate_local(args.path)
-    except CliError as exc:
-        if args.json:
-            print(json.dumps({"valid": False, "error": str(exc)}, ensure_ascii=False, indent=2))
-            raise
-        raise
-
-    def render(d: dict) -> None:
-        print(f"OK  {d['path']}")
-        print(f"    service_id : {d['service_id']}")
-        print(f"    category   : {d['category']}")
-        print("    schema_version: 1  (valid)")
-
-    emit(result, args.json, render)
-```
-
-- [ ] **Step 4: 통과 확인**
-
-Run: `cd cli && uv run pytest tests/test_cli_deploy.py -q`
-Expected: PASS (4 passed)
-
-- [ ] **Step 5: 커밋**
-
-```bash
-git add cli/hub_cli/main.py cli/tests/test_cli_deploy.py
-git commit -m "feat(cli): hub service validate 로컬 검증 구현 (Phase 2)"
-```
+> 계획 정정: 원래 Task 3는 로컬 Pydantic 검증 구현을 계획했으나,
+> 실제 CLI는 이미 jsonschema로 검증한다. 중복 구현하지 않는다.
 
 ---
+
 
 ## Task 4: 표준 디렉터리 템플릿 + `hub service new`
 
@@ -1015,16 +894,23 @@ SPEC_BODY = {
 
 
 def test_plan_endpoint_returns_ready(client):
-    r = client.post("/api/v1/deployments/plan", json=SPEC_BODY)
+    r = mutate(client, "POST", "/api/v1/deployments/plan", json=SPEC_BODY)
     assert r.status_code == 200
     data = r.json()
     assert data["result"] in ("READY", "BLOCKED")
     assert data["runtime_unchanged"] is True
 
 
+def test_plan_accepts_cli_service_definition_payload(client):
+    r = mutate(client, "POST", "/api/v1/deployments/plan",
+               json={"service_definition": SPEC_BODY})
+    assert r.status_code == 200
+    assert r.json()["service"] == "sample-app"
+
+
 def test_plan_endpoint_invalid_spec_422(client):
     bad = {**SPEC_BODY, "schema_version": 9}
-    r = client.post("/api/v1/deployments/plan", json=bad)
+    r = mutate(client, "POST", "/api/v1/deployments/plan", json=bad)
     assert r.status_code == 422
     assert r.json()["code"] == "unsupported_schema_version"
 
@@ -1034,12 +920,16 @@ def test_plan_requires_auth(anon_client):
     assert r.status_code in (401, 403)
 
 
-def test_apply_still_locked_when_deploy_disabled(client, app_factory):
+def test_apply_still_locked_when_deploy_disabled(client):
     # 기본 설정 enable_deploy=False → apply는 여전히 503
-    r = client.post("/api/v1/deployments", json={"service_id": "sample-app",
-                                                 "spec": SPEC_BODY})
+    r = mutate(client, "POST", "/api/v1/deployments",
+               json={"service_id": "sample-app", "spec": SPEC_BODY})
     assert r.status_code == 503
     assert r.json()["code"] == "deploy_disabled"
+```
+
+> `mutate(client, ...)`는 CSRF를 자동 첨부한다(conftest). POST는 CSRF 필수이므로
+> 계획 테스트도 반드시 `mutate`를 사용한다 (계획 사전 검토에서 발견).
 ```
 
 - [ ] **Step 2: 테스트 실패 확인**
@@ -1091,13 +981,26 @@ def _collect_plan_context(db: Session, spec) -> "PlanContext":
 @deploy_router.post("/plan")
 def plan_deployment(payload: dict, db: Session = Depends(get_db),
                     actor: str = Depends(get_read_actor)):
-    """배포 계획 생성 — 컨테이너를 변경하지 않는다."""
+    """배포 계획 생성 — 컨테이너를 변경하지 않는다.
+
+    CLI는 `{"service_definition": <service.yaml dict>}`로 POST한다.
+    직접 호출 시에는 스펙 dict를 그대로 보내도 된다.
+    """
     from ..services.deploy_plan import build_plan
     from ..services.service_spec import SpecError, validate_spec_dict
-    try:
-        spec = validate_spec_dict(payload)
-    except SpecError as exc:
-        raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+
+    spec_dict = payload.get("service_definition", payload)
+    if isinstance(spec_dict, str):
+        from ..services.service_spec import parse_spec
+        try:
+            spec = parse_spec(spec_dict)
+        except SpecError as exc:
+            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    else:
+        try:
+            spec = validate_spec_dict(spec_dict)
+        except SpecError as exc:
+            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
     ctx = _collect_plan_context(db, spec)
     plan = build_plan(spec, ctx)
     record_audit(db, actor, "deploy.plan", target=spec.service.id,
@@ -1127,146 +1030,21 @@ git commit -m "feat(backend): 배포 계획 API 실구현 (POST /deployments/pla
 
 ---
 
-## Task 7: CLI `hub deploy plan <path>` + `hub port available`
+## Task 7: CLI `hub deploy plan` / `port available` — ✅ 이미 구현됨 (검증만)
 
-**Files:**
-- Modify: `cli/hub_cli/main.py`
-- Test: `cli/tests/test_cli_deploy.py`
+**실행 중 발견:** CLI에 `cmd_deploy_plan`(line 327)과 `cmd_port_available`(line 259)가
+이미 존재한다. `deploy plan`은 `{"service_definition": doc}`로 POST하고, Phase 3
+비활성 시 안내 메시지로 변환한다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+따라서 **새로 구현하지 않는다.** 백엔드 `/deployments/plan`이 이 payload를
+받도록 Task 6에서 맞춘다.
 
-`cli/tests/test_cli_deploy.py`에 추가:
+- [ ] **Step 1: 기존 동작 확인**
 
-```python
-def test_deploy_plan_posts_to_backend(tmp_path, monkeypatch, capsys):
-    import hub_cli.main as m
-    p = tmp_path / "service.yaml"
-    p.write_text(VALID_YAML, encoding="utf-8")
-
-    captured = {}
-
-    def fake_api(path, method="GET", payload=None):
-        captured["path"] = path
-        captured["method"] = method
-        captured["payload"] = payload
-        return {"service": "sample-app", "result": "READY", "changes": [],
-                "ports": [], "data": [], "impact": [], "validation": [],
-                "warnings": [], "runtime_unchanged": True}
-
-    monkeypatch.setattr(m, "api", fake_api)
-    code = m.main(["deploy", "plan", str(p)])
-    assert code == 0
-    assert captured["path"].endswith("/deployments/plan")
-    assert captured["method"] == "POST"
-    assert captured["payload"]["service"]["id"] == "sample-app"
-
-
-def test_deploy_plan_json(tmp_path, monkeypatch, capsys):
-    import json
-    import hub_cli.main as m
-    p = tmp_path / "service.yaml"
-    p.write_text(VALID_YAML, encoding="utf-8")
-    monkeypatch.setattr(m, "api", lambda *a, **k: {"service": "sample-app",
-                                                   "result": "READY", "changes": []})
-    code = m.main(["deploy", "plan", str(p), "--json"])
-    assert code == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["result"] == "READY"
-```
-
-- [ ] **Step 2: 테스트 실패 확인**
-
-Run: `cd cli && uv run pytest tests/test_cli_deploy.py -k deploy_plan -q`
-Expected: FAIL (deploy 서브커맨드 없음)
-
-- [ ] **Step 3: 최소 구현 작성**
-
-`cli/hub_cli/main.py`에 추가:
-
-```python
-def _load_spec_dict(path: str) -> dict:
-    """서비스 스펙을 로드하고 로컬 검증한 뒤 dict를 반환한다."""
-    import yaml
-    p = Path(path)
-    if p.is_dir():
-        p = p / "service.yaml"
-    if not p.exists():
-        raise CliError(f"service.yaml을 찾을 수 없습니다: {p}", EXIT_REJECTED)
-    _validate_local(str(p))
-    return yaml.safe_load(p.read_text(encoding="utf-8"))
-
-
-def cmd_deploy_plan(args: argparse.Namespace) -> None:
-    spec = _load_spec_dict(args.path)
-    data = api("/deployments/plan", "POST", spec)
-
-    def render(d: dict) -> None:
-        print(f"Service: {d.get('service')}")
-        print("Changes:")
-        for c in d.get("changes", []):
-            print(f"  {c.get('name')}: {c.get('action')} — {c.get('detail', '')}")
-        port_changes = [p for p in d.get("ports", []) if p.get("host_port")]
-        print("Ports:")
-        print("  No host port changes" if not port_changes
-              else "\n".join(f"  {p['host_port']} -> {p['name']}" for p in port_changes))
-        print("Validation:")
-        for v in d.get("validation", []):
-            print(f"  {v.get('check')}: {v.get('result')}")
-        for i in d.get("impact", []):
-            print(f"  IMPACT: {i.get('message')}")
-        print(f"Result: {d.get('result')}")
-
-    emit(data, args.json, render)
-
-
-def cmd_port_available(args: argparse.Namespace) -> None:
-    params = []
-    if args.count:
-        params.append(("count", str(args.count)))
-    if args.range:
-        params.append(("range", args.range))
-    params.append(("protocol", args.protocol))
-    qs = "&".join(f"{k}={v}" for k, v in params)
-    data = api(f"/ports/available?{qs}")
-
-    def render(d: dict) -> None:
-        ports = d.get("items") or d.get("ports") or []
-        print("가용 포트 후보:")
-        for port in ports:
-            print(f"  {port}")
-        if not ports:
-            print("  (없음)")
-    emit(data, args.json, render)
-```
-
-`build_parser()`에 `deploy`, `port available` 서브커맨드 추가:
-
-```python
-    dp = sub.add_parser("deploy", help="배포 계획/실행")
-    dp_sub = dp.add_subparsers(dest="deploy_cmd", required=True)
-    dp_plan = dp_sub.add_parser("plan", help="배포 계획 생성 (읽기 전용)")
-    dp_plan.add_argument("path")
-    dp_plan.add_argument("--json", action="store_true")
-    dp_plan.set_defaults(func=cmd_deploy_plan)
-
-    sp_avail = port_sub.add_parser("available", help="가용 포트 후보 조회")
-    sp_avail.add_argument("--count", type=int, default=5)
-    sp_avail.add_argument("--range", default=None)
-    sp_avail.add_argument("--protocol", default="tcp", choices=["tcp", "udp"])
-    sp_avail.add_argument("--json", action="store_true")
-    sp_avail.set_defaults(func=cmd_port_available)
-```
-
-- [ ] **Step 4: 통과 확인 및 커밋**
-
-Run: `cd cli && uv run pytest tests/test_cli_deploy.py -q` → PASS
-
-```bash
-git add cli/hub_cli/main.py cli/tests/test_cli_deploy.py
-git commit -m "feat(cli): hub deploy plan 및 port available 명령 추가"
-```
+Run: `cd cli && uv run pytest tests/test_cli.py -q` → PASS
 
 ---
+
 
 ## Task 8: 설정 게이트 + SECURITY/AGENTS 문서 갱신
 
