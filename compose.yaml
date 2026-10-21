@@ -23,6 +23,10 @@ services:
       HUB_DEPLOY_WORKDIR: /srv/services
       # 배포 게이트 기본 잠금. 열려면 .env에 HUB_ENABLE_DEPLOY=true (docs/SECURITY.md 확인)
       HUB_ENABLE_DEPLOY: "${HUB_ENABLE_DEPLOY:-false}"
+      # 생체인식(WebAuthn) — HTTPS 보안 컨텍스트에서만 동작한다. 둘 다 설정해야 켜진다.
+      # 예: HUB_WEBAUTHN_RP_ID=<tailnet FQDN>, HUB_WEBAUTHN_ORIGIN=https://<tailnet FQDN>
+      HUB_WEBAUTHN_RP_ID: "${HUB_WEBAUTHN_RP_ID:-}"
+      HUB_WEBAUTHN_ORIGIN: "${HUB_WEBAUTHN_ORIGIN:-}"
     volumes:
       - hub-data:/data
       - ${HUB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
