@@ -57,9 +57,17 @@ def _iso(value: Any) -> str | None:
 class DockerGateway:
     """실제 Docker SDK 클라이언트를 감싼 게이트웨이."""
 
-    def __init__(self, socket_path: str | None = None) -> None:
+    def __init__(self, socket_path: str | None = None,
+                 allow_mutations: bool = False) -> None:
         self._socket_path = socket_path
         self._client = None
+        self._allow_mutations = allow_mutations
+        self.mutation_log: list[dict] = []
+
+    def _require_mutation(self) -> None:
+        if not self._allow_mutations:
+            raise PermissionError(
+                "이 게이트웨이는 변경 작업이 허용되지 않았습니다 (allow_mutations=False)")
 
     def _get_client(self):
         if self._client is not None:
@@ -134,6 +142,48 @@ class DockerGateway:
             }
         except Exception:
             return None
+
+    # ------------------------------------------------------------------
+
+    def compose_config(self, project_dir: str, project_name: str) -> dict:
+        """`docker compose config` 상당의 검증. 읽기 전용 (게이트 불필요)."""
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ["docker", "compose", "-f", f"{project_dir}/compose.yaml",
+                 "-p", project_name, "config", "--quiet"],
+                capture_output=True, text=True, timeout=30, check=False)
+            return {"ok": proc.returncode == 0, "stderr": proc.stderr.strip()[:500]}
+        except Exception as exc:
+            return {"ok": False, "stderr": type(exc).__name__}
+
+    def compose_up(self, project_dir: str, project_name: str,
+                   timeout: int = 600) -> dict:
+        """Compose 프로젝트 배포. 임의 셸/커맨드 파라미터는 받지 않는다."""
+        self._require_mutation()
+        return self._compose(["up", "-d", "--remove-orphans"], project_dir,
+                             project_name, timeout)
+
+    def compose_down(self, project_dir: str, project_name: str,
+                     timeout: int = 300) -> dict:
+        self._require_mutation()
+        return self._compose(["down"], project_dir, project_name, timeout)
+
+    def _compose(self, args: list[str], project_dir: str, project_name: str,
+                 timeout: int) -> dict:
+        import subprocess
+        cmd = ["docker", "compose", "-f", f"{project_dir}/compose.yaml",
+               "-p", project_name, *args]
+        self.mutation_log.append({"action": f"compose_{args[0]}", "project": project_name})
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=timeout, check=False)
+            return {"ok": proc.returncode == 0,
+                    "stdout": proc.stdout[-2000:], "stderr": proc.stderr[-2000:]}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "stderr": "timeout"}
+        except Exception as exc:
+            return {"ok": False, "stderr": type(exc).__name__}
 
     # ------------------------------------------------------------------
 
@@ -240,10 +290,24 @@ class FakeDockerGateway(DockerGateway):
     """테스트 전용: 데몬 없이 스냅샷을 공급한다."""
 
     def __init__(self, containers: list[FakeContainer] | None = None,
-                 connected: bool = True) -> None:
-        super().__init__()
+                 connected: bool = True, allow_mutations: bool = False) -> None:
+        super().__init__(allow_mutations=allow_mutations)
         self.containers = containers or []
         self.connected = connected
+
+    def compose_config(self, project_dir: str, project_name: str) -> dict:
+        return {"ok": True, "stderr": ""}
+
+    def compose_up(self, project_dir: str, project_name: str, timeout: int = 600) -> dict:
+        self._require_mutation()
+        self.mutation_log.append({"action": "compose_up", "project": project_name,
+                                  "dir": project_dir})
+        return {"ok": True, "stdout": f"fake compose up {project_name}", "stderr": ""}
+
+    def compose_down(self, project_dir: str, project_name: str, timeout: int = 300) -> dict:
+        self._require_mutation()
+        self.mutation_log.append({"action": "compose_down", "project": project_name})
+        return {"ok": True, "stdout": "", "stderr": ""}
 
     def status(self) -> DockerStatus:
         if self.connected:
