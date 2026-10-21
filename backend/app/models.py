@@ -125,6 +125,10 @@ class Deployment(Base):
     started_at: Mapped[str | None] = mapped_column(String(40))
     finished_at: Mapped[str | None] = mapped_column(String(40))
 
+    steps: Mapped[list[DeploymentStep]] = relationship(
+        back_populates="deployment", cascade="all, delete-orphan",
+        order_by="DeploymentStep.seq")
+
 
 class DeploymentStep(Base):
     __tablename__ = "deployment_steps"
@@ -136,6 +140,8 @@ class DeploymentStep(Base):
     status: Mapped[str] = mapped_column(String(24), default="pending")
     detail: Mapped[str | None] = mapped_column(Text)
     at: Mapped[str] = mapped_column(String(40), default=utcnow)
+
+    deployment: Mapped[Deployment] = relationship(back_populates="steps")
 
 
 class ResourceSample(Base):
