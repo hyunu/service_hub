@@ -1,6 +1,6 @@
 # IMPLEMENTATION STATUS
 
-최종 갱신: 2026-10-21 (Phase 2 + Phase 3 apply — 로컬 검증 완료)
+최종 갱신: 2026-10-21 (Phase 2 + Phase 3 apply — 로컬 검증 완료 / N100 서버 배포·관리자 초기화 완료)
 
 ## 완료
 - **Phase 0**: 환경 조사(개발 머신 macOS / Docker 29.4.3, 기존 컨테이너 19개),
@@ -39,6 +39,17 @@
     공개키만 저장, 챌린지 1회용 5분 TTL, 로그인 잠금(5회/5분) 공유.
     로그인 화면 "생체인식으로 로그인" + Settings > 보안 탭 키 관리.
   - 사이드바 접기 + 화면 세로 중앙 원형 토글 버튼(localStorage 유지).
+- **관리자 비밀번호 분실 복구 (2026-10-21)**:
+  - `POST /api/v1/auth/reset-admin`: 관리자 자격 증명(사용자명·비밀번호 해시·패스워드 키)
+   만 삭제하고 설정 마법사를 다시 표시한다. 서비스/포트/컨테이너 데이터는 보존.
+  - 허용 조건: **루프백 요청** 또는 `HUB_ADMIN_RESET_TOKEN` + `X-Hub-Admin-Reset-Token`
+    헤더 일치. 그 외는 403 `reset_not_allowed` (인증 우회 경로 없음).
+  - 복구 토큰은 **1회 사용** — 성공 후 해시가 DB에 기록되어 같은 토큰 재사용 불가.
+  - 세션 epoch: 관리자 생성/초기화마다 값이 바뀌어 기존 세션이 자동 무효화
+    (재시작 불필요, 세션 쿠키 소지 요청도 401).
+  - CLI `hub admin reset`: API 모드(`--url`/`--token`) + 오프라인 모드(`--db`, 백업 후
+    `settings`/`webauthn_credentials`만 삭제). `--yes` 없이는 실행하지 않는다.
+  - N100 실서버에서 실제로 관리자 초기화 수행 완료(아래 배포 검증 참고).
 - **컨테이너 수동 그룹핑 (2026-10-21)**:
   - `container_assignments` 테이블: 명시적 연결을 주기 동기화(이름 자동 매칭)보다 우선 적용.
   - `POST /orphans/attach`(다중 일괄), `POST /containers/{id}/detach`,
@@ -52,9 +63,9 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **120 passed** (Phase 1: 52) |
-| §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **1 passed (실제 Docker 데몬 사용, skip 아님)** |
-| CLI | `cd cli && uv run pytest` | **21 passed** (Phase 1: 14) |
+| 백엔드 | `cd backend && uv run pytest` | **128 passed, 1 skipped** (관리자 초기화 10건 추가. Phase 1: 52) |
+| §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
+| CLI | `cd cli && uv run pytest` | **28 passed** (관리자 초기화 7건 추가. Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
 | 프론트엔드 빌드 | `npm run build --prefix frontend` | **성공** (tsc 0 errors) |
 | 배포 게이트 기본값 | `Settings().deploy_gate()` | **`(False, ...)` — 기본 잠금 확인** |
@@ -89,8 +100,25 @@
   수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
   검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
-## 알려진 문제 / 확인 필요
-- **N100 배포 검증 범위** — 2026-10-21 배포 후 인증/UI/WebAuthn/HTTPS 경로는 N100에서
+### N100 서버 배포 검증 (2026-10-21, 관리자 초기화 포함)
+- 브랜치 `phase2-3-deploy` HEAD `1c82ae4` → 서버 `git pull --ff-only` →
+  `docker compose --env-file /srv/service-hub/.env up -d --build` 성공
+  (hub-backend healthy, hub-frontend up).
+- **기존 서비스 보호**: 배포 전/후 assetnest-* 6개 컨테이너 스냅샷(이름·상태·포트·이미지)
+  diff 없음, 볼륨 md5 `1d98df79…` / 네트워크 md5 `0e96287e…` 동일(배포 전과 동일).
+- **§19.6 보호 테스트를 N100 서버에서 실제 Docker 데몬으로 실행 → 1 passed**
+  (테스트 컨테이너/네트워크 잔여 0). 서버 이미지에는 `HUB_BIND=0.0.0.0`이 baked-in
+  되어 있어 테스트 실행 시 `HUB_BIND=127.0.0.1`로 맞춰 실행해야 한다(로컬/CI와 동일).
+- **관리자 초기화 실행**: 컨테이너 내부 루프백(`docker exec hub-backend` → 127.0.0.1)으로
+  `POST /api/v1/auth/reset-admin` → `{"ok":true,"reset":true,"username":"admin",
+  "setup_required":true}`. 공개 URL `GET /api/v1/setup/status` → `{"setup_required":true}`
+  (설정 마법사 표시), 감사 로그 `auth.admin_reset`(actor `loopback:127.0.0.1`) 기록 확인,
+  admin 행/WebAuthn 자격 증명 삭제 확인.
+- 서버 CLI(`hub`, uv tool 편집 가능 설치) 확인: `hub admin reset --help` 정상,
+  API 모드는 비루프백+무토큰에서 `403 reset_not_allowed`(종료 코드 4)로 거절,
+  오프라인 모드(`--db`)는 실제 볼륨 DB를 읽어 "관리자 없음"(종료 코드 5)을 보고.
+
+## 알려진 문제 / 확인 필요- **N100 배포 검증 범위** — 2026-10-21 배포 후 인증/UI/WebAuthn/HTTPS 경로는 N100에서
   재검증했다(위 "N100 서버 배포 검증"). 아래 배포 실행(apply) 관련 한계는 그대로 남아 있다.
 - **배포 실행(apply)은 어떤 환경에서도 실 컨테이너 생성까지 검증하지 않았다.** 테스트는
   Fake Docker 게이트웨이로 상태머신만 검증했고, 실 `docker compose up` 경로는 N100에서
@@ -105,6 +133,10 @@
 - Phase 4: 권한 강화, 백업/복구, 추세 분석.
 
 ## 다음 실행 단계
+- **N100 관리자 계정 생성 대기** — 관리자 초기화로 서버에 관리자가 없다.
+  `https://n100-pve-dev.tail7d413d.ts.net` 접속 → 설정 마법사에서 관리자 계정 생성
+  (비밀번호 8자 이상). 원격 `hub admin reset`이 필요하면 `.env`에
+  `HUB_ADMIN_RESET_TOKEN`을 설정하고 백엔드를 재기동한 뒤 사용(1회 사용).
 - 배포 실행 검증은 `HUB_ENABLE_DEPLOY` 잠금 해제 승인 후, 사용하지 않는 테스트 서비스로
   `hub deploy plan → apply → status → 실제 상태 재조회` 순서로 수행한다.
 - 다음 UX 후보: 서비스 상세에서 컴포넌트를 직접 편집(그룹핑 결과를 서비스 정의로 승격).
