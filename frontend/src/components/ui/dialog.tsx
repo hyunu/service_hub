@@ -18,10 +18,16 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
   const titleId = React.useId();
   const descId = React.useId();
 
+  // onClose 는 부모가 인라인 함수로 넘기는 경우가 많아 렌더마다 정체성이 바뀐다.
+  // effect 의존성에 넣으면 입력할 때마다 effect가 재실행되어 패널로 포커스를
+  // 빼앗는다(입력 불가 버그). 최신 핸들러만 ref로 유지하고 effect는 open에만 반응한다.
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     const prev = document.activeElement as HTMLElement | null;
@@ -30,7 +36,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
       document.removeEventListener("keydown", onKey);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

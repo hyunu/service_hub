@@ -157,6 +157,23 @@ describe("Services 페이지", () => {
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
   });
 
+  it("등록 다이얼로그에서 입력해도 포커스가 유지된다", async () => {
+    // 회귀 방지: onClose 가 렌더마다 새 함수여도 다이얼로그가 재포커스하지 않아야 한다.
+    const user = userEvent.setup();
+    render(<Services />);
+    await screen.findByText("AI Platform");
+
+    await user.click(screen.getByRole("button", { name: /서비스 등록/ }));
+    const dialog = await screen.findByRole("dialog");
+    const idInput = within(dialog).getByLabelText(/서비스 ID/);
+
+    await user.click(idInput);
+    await user.type(idInput, "my-app");
+
+    expect(idInput).toHaveValue("my-app");
+    expect(idInput).toHaveFocus();
+  });
+
   it("등록 다이얼로그에서 필수값 검증 오류를 표시한다", async () => {
     const user = userEvent.setup();
     render(<Services />);
