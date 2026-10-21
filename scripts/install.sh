@@ -71,7 +71,20 @@ if [ -S /var/run/docker.sock ]; then
   grep -q '^HUB_DOCKER_SOCKET=' "$PREFIX/.env" || \
     echo "HUB_DOCKER_SOCKET=/var/run/docker.sock" >> "$PREFIX/.env"
 fi
+
+# docker 그룹 GID 자동 감지 — 컨테이너 비루트 사용자가 소켓에 접근하려면 필요하다.
+DOCKER_GID="$(getent group docker 2>/dev/null | cut -d: -f3 || true)"
+if [ -n "${DOCKER_GID:-}" ]; then
+  if grep -q '^HUB_DOCKER_GID=' "$PREFIX/.env"; then
+    sed -i "s/^HUB_DOCKER_GID=.*/HUB_DOCKER_GID=$DOCKER_GID/" "$PREFIX/.env"
+  else
+    echo "HUB_DOCKER_GID=$DOCKER_GID" >> "$PREFIX/.env"
+  fi
+  info "docker 그룹 GID 감지: $DOCKER_GID"
+fi
+
 grep -q '^HUB_PORT=' "$PREFIX/.env" || echo "HUB_PORT=$PORT" >> "$PREFIX/.env"
+grep -q '^HUB_SERVICES_DIR=' "$PREFIX/.env" || echo "HUB_SERVICES_DIR=/srv/services" >> "$PREFIX/.env"
 
 # 5. CLI 설치 --------------------------------------------------------------
 if [ "$WITH_CLI" = "1" ]; then

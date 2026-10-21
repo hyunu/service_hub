@@ -25,6 +25,10 @@ services:
       - hub-data:/data
       - ${HUB_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - ${HUB_SERVICES_DIR:-/srv/services}:/srv/services:rw
+    # Docker 소켓은 root:<docker GID> 소유다. 컨테이너 비루트 사용자가 접근하려면
+    # 호스트 docker 그룹 GID를 보조 그룹으로 추가해야 한다 (기본값 988).
+    group_add:
+      - "${HUB_DOCKER_GID:-988}"
     ports:
       # 외부 공개가 필요하면 "127.0.0.1:8420:8420" 또는 내부망 IP로 변경
       - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-8420}:8420"
