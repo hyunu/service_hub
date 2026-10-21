@@ -1,0 +1,1105 @@
+/**
+ * N100 Service Hub — 백엔드 API 클라이언트 (계약: docs/ARCHITECTURE.md §3 "API 계약 v1")
+ *
+ * - prefix: /api/v1 (Vite dev proxy → http://127.0.0.1:8420)
+ * - 오류: HTTP 오류 시 `{"detail": "...", "code": "..."}` → ApiError throw
+ * - 시간: 전부 ISO 8601 (로컬 오프셋 포함) — 포맷은 lib/format.ts 사용
+ * - CSRF: 세션 응답의 csrf_token을 받아 변경 메서드에 X-CSRF-Token 헤더로 전송
+ * - 개발용 목(mock): VITE_API_MOCK=true 이면 lib/mock.ts 어댑터로 응답
+ */
+
+import { mockRequest } from "./mock";
+
+export const API_PREFIX = "/api/v1";
+
+/* ------------------------------------------------------------------ */
+/* 오류                                                                */
+/* ------------------------------------------------------------------ */
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly payload: unknown;
+
+  constructor(detail: string, status: number, code?: string | null, payload?: unknown) {
+    super(detail);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code ?? null;
+    this.payload = payload ?? null;
+  }
+
+  /** 입력 검증 오류 등에서 서버가 돌려준 필드별 메시지 */
+  get fieldErrors(): Record<string, string> | null {
+    const p = this.payload;
+    if (p && typeof p === "object" && "errors" in p) {
+      const errs = (p as { errors: unknown }).errors;
+      if (errs && typeof errs === "object" && !Array.isArray(errs)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(errs as Record<string, unknown>)) {
+          out[k] = Array.isArray(v) ? v.map(String).join(", ") : String(v);
+        }
+        return out;
+      }
+    }
+    return null;
+  }
+}
+
+export function isApiError(e: unknown): e is ApiError {
+  return e instanceof ApiError;
+}
+
+/** 인증 세션 만료/미로그인 감지 리스너 */
+type UnauthorizedListener = () => void;
+const unauthorizedListeners = new Set<UnauthorizedListener>();
+
+export function onUnauthorized(fn: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(fn);
+  return () => unauthorizedListeners.delete(fn);
+}
+
+/* ------------------------------------------------------------------ */
+/* CSRF                                                                */
+/* ------------------------------------------------------------------ */
+
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null): void {
+  csrfToken = token;
+}
+
+export function getCsrfToken(): string | null {
+  return csrfToken;
+}
+
+/* ------------------------------------------------------------------ */
+/* 타입                                                                */
+/* ------------------------------------------------------------------ */
+
+export type ServiceStatus = "ok" | "warn" | "critical" | "unknown";
+export type ManagementState =
+  | "managed"
+  | "unmanaged"
+  | "mismatch"
+  | "missing"
+  | "unknown";
+export type ContainerStateKind = "running" | "stopped" | "all";
+export type Exposure = "public" | "proxy" | "direct" | "internal" | "host";
+export type Protocol = "tcp" | "udp";
+
+/** 포트 레지스트리 상태 (사양 §11.6) */
+export type PortState =
+  | "reserved"
+  | "in_use"
+  | "available"
+  | "conflict"
+  | "unmanaged"
+  | "proxy"
+  | "internal";
+
+export type Severity = "info" | "warning" | "error" | "critical";
+
+export type DeploymentStatus =
+  | "queued"
+  | "validating"
+  | "running"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+/* ---------------------------- 시스템 ------------------------------ */
+
+export interface SystemOverview {
+  server: {
+    hostname: string;
+    os: string;
+    kernel: string;
+    uptime_seconds: number | null;
+    booted_at: string | null;
+  };
+  docker: { connected: boolean; server_version: string | null };
+  resources: {
+    cpu: { percent: number | null; cores: number | null; per_core?: number[] | null };
+    memory: {
+      total_mb: number | null;
+      used_mb: number | null;
+      available_mb: number | null;
+      percent: number | null;
+    };
+    disk: { total_gb: number | null; used_gb: number | null; percent: number | null };
+  };
+  counts: {
+    services: number;
+    containers_running: number;
+    containers_stopped: number;
+    orphans: number;
+  };
+  last_monitor_ok_at: string | null;
+  recent_events: HubEvent[];
+}
+
+export interface SystemStatus {
+  monitor?: {
+    running?: boolean;
+    interval_seconds?: number;
+    last_ok_at?: string | null;
+    last_error?: string | null;
+    consecutive_errors?: number;
+  };
+  docker?: { connected?: boolean; server_version?: string | null };
+  hub?: { name?: string; version?: string; deploy_enabled?: boolean };
+  last_monitor_ok_at?: string | null;
+  /** 데이터 수집이 오래되었는지 여부(서버 판정 우선, 없으면 클라이언트 계산) */
+  stale?: boolean;
+}
+
+export interface ThresholdSettings {
+  memory_warn_percent?: number;
+  memory_critical_percent?: number;
+  disk_warn_percent?: number;
+  disk_critical_percent?: number;
+  cpu_warn_percent?: number;
+  cpu_critical_percent?: number;
+  cpu_sustained_seconds?: number;
+}
+
+export interface HubSettings {
+  hub_name: string;
+  monitor_interval_seconds: number;
+  thresholds: ThresholdSettings;
+  bind?: {
+    host?: string;
+    port?: number;
+    internal_only?: boolean;
+    [k: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/* --------------------------- 서비스 ------------------------------- */
+
+export interface ServiceEndpoint {
+  name: string;
+  type: string;
+  exposure: Exposure;
+  hostname: string | null;
+  container: string | null;
+  container_port: number | null;
+  enabled?: boolean;
+}
+
+export interface ServiceListItem {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  status: ServiceStatus;
+  containers: { total: number; running: number };
+  endpoints: ServiceEndpoint[];
+  cpu_percent: number | null;
+  memory_mb: number | null;
+  last_deployed_at: string | null;
+  deployment_type?: string;
+  deployment_path?: string | null;
+  compose_file?: string | null;
+  repository_url?: string | null;
+  repository_branch?: string | null;
+  version?: string | null;
+  documentation?: string | null;
+  tags?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_healthcheck_at?: string | null;
+}
+
+export interface ServiceComponent {
+  name: string;
+  role: string;
+  required: boolean;
+  description?: string | null;
+  container_match?: string[];
+}
+
+export interface ServiceWarning {
+  level?: Severity | string;
+  message: string;
+}
+
+export interface ServiceDetail extends ServiceListItem {
+  components: ServiceComponent[];
+  warnings?: ServiceWarning[];
+  notes?: string | null;
+}
+
+export interface ServiceListQuery {
+  search?: string;
+  status?: string;
+  category?: string;
+}
+
+/** POST /services — 등록 폼 또는 service.yaml 내용(JSON 문자열) */
+export interface ServiceCreatePayload {
+  yaml?: string;
+  service?: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    version?: string;
+  };
+  deployment?: {
+    type?: string;
+    deployment_path?: string;
+    compose_file?: string;
+  };
+  repository_url?: string;
+  repository_branch?: string;
+  documentation?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+export interface ServiceUpdatePayload {
+  description?: string;
+  documentation?: string | null;
+  tags?: string[];
+  notes?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DeleteResult {
+  runtime_unchanged?: boolean;
+  deleted?: boolean;
+  id?: string;
+}
+
+/* -------------------------- 컨테이너 ------------------------------ */
+
+export interface PortMapping {
+  host_ip: string | null;
+  host_port: number | null;
+  container_port: number;
+  protocol: string;
+}
+
+export type NetworkRef = string | { name: string; ip_address?: string | null };
+
+export interface ContainerListItem {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  management_state: ManagementState;
+  service_id: string | null;
+  component_name: string | null;
+  compose_project: string | null;
+  compose_service: string | null;
+  ports: PortMapping[];
+  networks: NetworkRef[];
+  started_at: string | null;
+  created_at: string | null;
+  restart_count: number;
+  health: string | null;
+  observed_at: string | null;
+  cpu_percent?: number | null;
+  memory_mb?: number | null;
+}
+
+export interface ContainerMount {
+  type: string;
+  source: string;
+  target: string;
+  mode?: string;
+}
+
+export interface ContainerStats {
+  cpu_percent?: number | null;
+  mem_used_mb?: number | null;
+  mem_limit_mb?: number | null;
+  net_rx_bytes?: number | null;
+  net_tx_bytes?: number | null;
+  block_read_bytes?: number | null;
+  block_write_bytes?: number | null;
+}
+
+export interface ContainerDetail extends ContainerListItem {
+  mounts: ContainerMount[];
+  labels: Record<string, string>;
+  stats: ContainerStats | null;
+}
+
+export interface ContainerQuery {
+  state?: ContainerStateKind;
+  management?: ManagementState;
+}
+
+/* --------------------------- 미관리 ------------------------------- */
+
+export interface OrphanItem {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  ports?: PortMapping[];
+  networks?: NetworkRef[];
+  mounts?: ContainerMount[];
+  created_at?: string | null;
+  compose_project?: string | null;
+  suspected_service_id?: string | null;
+  suspected_service_name?: string | null;
+  reason?: string | null;
+  review_state?: string | null;
+  service_id?: string | null;
+}
+
+export interface AttachPayload {
+  service_id: string;
+  component_name: string;
+}
+
+export interface ReviewPayload {
+  review_state: string;
+}
+
+/* ---------------------------- 포트 --------------------------------- */
+
+export interface PortEntry {
+  /** 예약 레코드 id (삭제/수정용). 미예약 점유는 null */
+  reservation_id?: string | null;
+  service_id: string | null;
+  service_name?: string | null;
+  component?: string | null;
+  protocol: Protocol | string;
+  host_port: number;
+  bind_addr: string;
+  container_port?: number | null;
+  exposure?: Exposure | string;
+  state: PortState | string;
+  occupied?: boolean;
+  occupied_by?: string | null;
+  hostname?: string | null;
+  proxy_connected?: boolean;
+  last_checked_at?: string | null;
+}
+
+export interface AvailablePortsQuery {
+  count?: number;
+  range?: string;
+  protocol?: Protocol;
+}
+
+export interface AvailablePortsResult {
+  ports: number[];
+  count?: number;
+  range?: string;
+  protocol?: string;
+}
+
+export interface ReservationPayload {
+  service_id: string;
+  component: string;
+  host_port: number;
+  protocol: Protocol;
+  bind_addr: string;
+  container_port?: number | null;
+  exposure: Exposure;
+}
+
+/* --------------------------- 자원 -------------------------------- */
+
+export interface ResourceSample {
+  ts: string;
+  cpu_percent?: number | null;
+  mem_used_mb?: number | null;
+  mem_limit_mb?: number | null;
+  net_rx_bytes?: number | null;
+  net_tx_bytes?: number | null;
+  disk_used_gb?: number | null;
+}
+
+export interface HostResources {
+  cpu: {
+    percent: number | null;
+    cores: number | null;
+    per_core?: number[] | null;
+    load_avg?: number[] | null;
+  };
+  memory: {
+    total_mb: number | null;
+    used_mb: number | null;
+    available_mb: number | null;
+    cached_mb?: number | null;
+    percent?: number | null;
+    swap_total_mb?: number | null;
+    swap_used_mb?: number | null;
+  };
+  disk: {
+    total_gb: number | null;
+    used_gb: number | null;
+    percent?: number | null;
+    filesystems?: Array<{
+      mount: string;
+      total_gb: number | null;
+      used_gb: number | null;
+      percent: number | null;
+    }>;
+    docker_data_gb?: number | null;
+  };
+  network?: {
+    interfaces?: Array<{
+      name: string;
+      rx_bps?: number | null;
+      tx_bps?: number | null;
+      rx_total_bytes?: number | null;
+      tx_total_bytes?: number | null;
+      errors?: number | null;
+    }>;
+  };
+  system?: {
+    hostname?: string;
+    os?: string;
+    kernel?: string;
+    booted_at?: string | null;
+    uptime_seconds?: number | null;
+    cpu_temp_c?: number | null;
+  };
+  samples?: ResourceSample[];
+  collected_at?: string | null;
+}
+
+export interface ContainerResourceRow {
+  container_id: string;
+  name: string;
+  service_id: string | null;
+  service_name?: string | null;
+  state: string;
+  health?: string | null;
+  cpu_percent: number | null;
+  mem_used_mb: number | null;
+  mem_limit_mb: number | null;
+  net_rx_bytes?: number | null;
+  net_tx_bytes?: number | null;
+  restart_count?: number;
+}
+
+export interface ServiceResourceRow {
+  service_id: string;
+  name: string;
+  status: ServiceStatus | string;
+  cpu_percent: number | null;
+  memory_mb: number | null;
+  containers_total: number;
+  containers_running: number;
+  restart_count?: number;
+}
+
+export interface ResourceWarning {
+  level: "warning" | "critical" | string;
+  scope: "cpu" | "memory" | "disk" | "network" | string;
+  message: string;
+  value?: number | null;
+  threshold?: number | null;
+}
+
+/* --------------------------- 배포 -------------------------------- */
+
+export interface DeploymentStep {
+  seq: number;
+  name: string;
+  status: string;
+  detail?: string | null;
+  at?: string | null;
+}
+
+export interface Deployment {
+  id: string;
+  service_id: string;
+  status: DeploymentStatus | string;
+  requested_by: string;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  plan?: unknown;
+  steps?: DeploymentStep[];
+}
+
+export interface DeploymentListQuery {
+  service_id?: string;
+  limit?: number;
+}
+
+/* --------------------------- 이벤트 ------------------------------- */
+
+export interface HubEvent {
+  id: string;
+  ts: string;
+  severity: Severity | string;
+  kind: string;
+  service_id: string | null;
+  container_id: string | null;
+  message: string;
+  detail?: unknown;
+}
+
+export interface EventQuery {
+  severity?: string;
+  service_id?: string;
+  limit?: number;
+}
+
+export interface AuditLog {
+  id: string;
+  ts: string;
+  actor: string;
+  action: string;
+  target: string;
+  detail?: unknown;
+}
+
+/* --------------------------- 로그 -------------------------------- */
+
+export interface LogLine {
+  ts?: string | null;
+  stream?: string | null;
+  message: string;
+}
+
+export interface ServiceLogs {
+  lines: LogLine[];
+}
+
+/* --------------------------- 검색 -------------------------------- */
+
+export interface SearchItem {
+  id: string;
+  label: string;
+  detail?: string;
+  route?: string;
+  kind: "service" | "container" | "port" | "domain" | "image";
+}
+
+export interface SearchGroup {
+  key: string;
+  title: string;
+  items: SearchItem[];
+}
+
+export interface SearchResults {
+  query: string;
+  groups: SearchGroup[];
+  total: number;
+}
+
+/* --------------------------- 인증 -------------------------------- */
+
+export interface SessionUser {
+  username: string;
+  role: string;
+}
+
+export interface SessionInfo {
+  authenticated: boolean;
+  setup_required: boolean;
+  user: SessionUser | null;
+  csrf_token: string | null;
+  expires_at?: string | null;
+}
+
+export interface LoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface SetupPayload {
+  username: string;
+  password: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* 요청 실행                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface RequestOptions {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  query?: Record<string, string | number | boolean | null | undefined>;
+  body?: unknown;
+  signal?: AbortSignal;
+  /** csrf_token을 받은 적이 없으면 요청 전에 세션을 다시 조회한다 (기본 true) */
+  refreshCsrf?: boolean;
+}
+
+function isMockMode(): boolean {
+  try {
+    return import.meta.env?.VITE_API_MOCK === "true";
+  } catch {
+    return false;
+  }
+}
+
+function buildQuery(query?: RequestOptions["query"]): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null || v === "") continue;
+    params.set(k, String(v));
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
+function newRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* noop */
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseBody(text: string): unknown {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+async function refreshCsrfFromSession(): Promise<void> {
+  try {
+    const res = await fetch(`${API_PREFIX}/auth/session`, {
+      headers: { Accept: "application/json" },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as Partial<SessionInfo>;
+      if (data && typeof data.csrf_token === "string") {
+        csrfToken = data.csrf_token;
+      }
+    }
+  } catch {
+    /* 세션 조회 실패는 원래 요청의 오류 처리로 넘긴다 */
+  }
+}
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? "GET";
+  const url = `${API_PREFIX}${path}${buildQuery(options.query)}`;
+  const mutating = MUTATING.has(method);
+
+  if (mutating && !csrfToken && options.refreshCsrf !== false) {
+    await refreshCsrfFromSession();
+  }
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "X-Request-Id": newRequestId(),
+  };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (mutating && csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
+  const init: RequestInit = {
+    method,
+    headers,
+    credentials: "same-origin",
+    signal: options.signal,
+  };
+  if (options.body !== undefined) init.body = JSON.stringify(options.body);
+
+  let status: number;
+  let payload: unknown;
+
+  if (isMockMode()) {
+    const res = await mockRequest(path + buildQuery(options.query), init);
+    status = res.status;
+    payload = res.body;
+  } else {
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      throw new ApiError(
+        "백엔드 서버에 연결할 수 없습니다 (127.0.0.1:8420).",
+        0,
+        "network_error",
+      );
+    }
+    status = res.status;
+    const text = await res.text();
+    payload = parseBody(text);
+    // 204 등 빈 본문
+    if (payload === "" || payload === undefined) payload = null;
+  }
+
+  if (status >= 400) {
+    let detail = `요청 실패 (HTTP ${status})`;
+    let code: string | null = null;
+    if (payload && typeof payload === "object") {
+      const p = payload as { detail?: unknown; code?: unknown };
+      if (typeof p.detail === "string" && p.detail) detail = p.detail;
+      if (typeof p.code === "string") code = p.code;
+    } else if (typeof payload === "string" && payload) {
+      detail = payload;
+    }
+    const err = new ApiError(detail, status, code, payload);
+    if (status === 401 || status === 403) {
+      for (const fn of unauthorizedListeners) fn();
+    }
+    throw err;
+  }
+
+  return payload as T;
+}
+
+function get<T>(path: string, query?: RequestOptions["query"], signal?: AbortSignal) {
+  return request<T>(path, { method: "GET", query, signal });
+}
+
+function send<T>(
+  path: string,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  body?: unknown,
+  query?: RequestOptions["query"],
+) {
+  return request<T>(path, { method, body, query });
+}
+
+/* ------------------------------------------------------------------ */
+/* 인증 / 초기 설정                                                    */
+/* ------------------------------------------------------------------ */
+
+export async function fetchSession(signal?: AbortSignal): Promise<SessionInfo> {
+  const data = await get<Partial<SessionInfo>>("/auth/session", undefined, signal);
+  const session: SessionInfo = {
+    authenticated: data?.authenticated ?? false,
+    setup_required: data?.setup_required ?? false,
+    user: data?.user ?? null,
+    csrf_token: data?.csrf_token ?? null,
+    expires_at: data?.expires_at ?? null,
+  };
+  if (session.csrf_token) setCsrfToken(session.csrf_token);
+  return session;
+}
+
+export async function login(payload: LoginPayload): Promise<SessionInfo> {
+  const data = await send<Partial<SessionInfo>>("/auth/login", "POST", payload);
+  const session: SessionInfo = {
+    authenticated: data?.authenticated ?? true,
+    setup_required: data?.setup_required ?? false,
+    user: data?.user ?? { username: payload.username, role: "admin" },
+    csrf_token: data?.csrf_token ?? null,
+  };
+  if (session.csrf_token) setCsrfToken(session.csrf_token);
+  else setCsrfToken(null);
+  return session;
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await send<unknown>("/auth/logout", "POST", undefined, undefined);
+  } finally {
+    setCsrfToken(null);
+  }
+}
+
+/** 최초 1회 관리자 생성 */
+export async function setupAdmin(payload: SetupPayload): Promise<SessionInfo | null> {
+  const data = await send<Partial<SessionInfo> | null>("/setup/admin", "POST", payload);
+  if (data && typeof data === "object") {
+    const session: SessionInfo = {
+      authenticated: data.authenticated ?? true,
+      setup_required: data.setup_required ?? false,
+      user: data.user ?? { username: payload.username, role: "admin" },
+      csrf_token: data.csrf_token ?? null,
+    };
+    if (session.csrf_token) setCsrfToken(session.csrf_token);
+    return session;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 시스템                                                              */
+/* ------------------------------------------------------------------ */
+
+export function fetchOverview(signal?: AbortSignal): Promise<SystemOverview> {
+  return get<SystemOverview>("/system/overview", undefined, signal);
+}
+
+export function fetchStatus(signal?: AbortSignal): Promise<SystemStatus> {
+  return get<SystemStatus>("/system/status", undefined, signal);
+}
+
+export function fetchSettings(signal?: AbortSignal): Promise<HubSettings> {
+  return get<HubSettings>("/system/settings", undefined, signal);
+}
+
+export function updateSettings(body: HubSettings): Promise<HubSettings> {
+  return send<HubSettings>("/system/settings", "PUT", body);
+}
+
+/* ------------------------------------------------------------------ */
+/* 서비스                                                              */
+/* ------------------------------------------------------------------ */
+
+export function fetchServices(
+  query?: ServiceListQuery,
+  signal?: AbortSignal,
+): Promise<ServiceListItem[]> {
+  return get<ServiceListItem[]>("/services", { ...query }, signal);
+}
+
+export function createService(body: ServiceCreatePayload): Promise<ServiceListItem> {
+  return send<ServiceListItem>("/services", "POST", body);
+}
+
+export function fetchService(id: string, signal?: AbortSignal): Promise<ServiceDetail> {
+  return get<ServiceDetail>(`/services/${encodeURIComponent(id)}`, undefined, signal);
+}
+
+export function updateService(
+  id: string,
+  body: ServiceUpdatePayload,
+): Promise<ServiceDetail> {
+  return send<ServiceDetail>(`/services/${encodeURIComponent(id)}`, "PATCH", body);
+}
+
+export function deleteService(id: string): Promise<DeleteResult> {
+  return send<DeleteResult>(`/services/${encodeURIComponent(id)}`, "DELETE", undefined, {
+    confirm: id,
+  });
+}
+
+export function fetchServiceContainers(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ContainerListItem[]> {
+  return get<ContainerListItem[]>(`/services/${encodeURIComponent(id)}/containers`, undefined, signal);
+}
+
+export function fetchServiceEndpoints(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ServiceEndpoint[]> {
+  return get<ServiceEndpoint[]>(`/services/${encodeURIComponent(id)}/endpoints`, undefined, signal);
+}
+
+export function fetchServiceLogs(
+  id: string,
+  tail = 200,
+  signal?: AbortSignal,
+): Promise<ServiceLogs> {
+  return get<ServiceLogs>(`/services/${encodeURIComponent(id)}/logs`, { tail }, signal);
+}
+
+export function fetchServiceEvents(
+  id: string,
+  limit = 100,
+  signal?: AbortSignal,
+): Promise<HubEvent[]> {
+  return get<HubEvent[]>(`/services/${encodeURIComponent(id)}/events`, { limit }, signal);
+}
+
+/* ------------------------------------------------------------------ */
+/* 컨테이너                                                            */
+/* ------------------------------------------------------------------ */
+
+export function fetchContainers(
+  query?: ContainerQuery,
+  signal?: AbortSignal,
+): Promise<ContainerListItem[]> {
+  return get<ContainerListItem[]>("/containers", { ...query }, signal);
+}
+
+export function fetchContainer(id: string, signal?: AbortSignal): Promise<ContainerDetail> {
+  return get<ContainerDetail>(`/containers/${encodeURIComponent(id)}`, undefined, signal);
+}
+
+/* ------------------------------------------------------------------ */
+/* 미관리(오렌) 컨테이너                                                */
+/* ------------------------------------------------------------------ */
+
+export function fetchOrphans(signal?: AbortSignal): Promise<OrphanItem[]> {
+  return get<OrphanItem[]>("/orphans", undefined, signal);
+}
+
+export function attachOrphan(cid: string, body: AttachPayload): Promise<unknown> {
+  return send<unknown>(`/orphans/${encodeURIComponent(cid)}/attach`, "POST", body);
+}
+
+export function reviewOrphan(cid: string, body: ReviewPayload): Promise<unknown> {
+  return send<unknown>(`/orphans/${encodeURIComponent(cid)}/review`, "POST", body);
+}
+
+/* ------------------------------------------------------------------ */
+/* 포트                                                                */
+/* ------------------------------------------------------------------ */
+
+export function fetchPorts(signal?: AbortSignal): Promise<PortEntry[]> {
+  return get<PortEntry[]>("/ports", undefined, signal);
+}
+
+export async function fetchAvailablePorts(
+  query: AvailablePortsQuery = {},
+  signal?: AbortSignal,
+): Promise<AvailablePortsResult> {
+  const raw = await get<Partial<AvailablePortsResult> & { available?: number[]; candidates?: number[] }>(
+    "/ports/available",
+    {
+      count: query.count ?? 5,
+      range: query.range,
+      protocol: query.protocol ?? "tcp",
+    },
+    signal,
+  );
+  const list = raw?.ports ?? raw?.available ?? raw?.candidates ?? [];
+  return {
+    ports: Array.isArray(list) ? list.map(Number).filter((n) => Number.isFinite(n)) : [],
+    count: raw?.count,
+    range: raw?.range,
+    protocol: raw?.protocol ?? query.protocol ?? "tcp",
+  };
+}
+
+export function createReservation(body: ReservationPayload): Promise<PortEntry> {
+  return send<PortEntry>("/ports/reservations", "POST", body);
+}
+
+export function deleteReservation(id: string): Promise<unknown> {
+  return send<unknown>(`/ports/reservations/${encodeURIComponent(id)}`, "DELETE");
+}
+
+/* ------------------------------------------------------------------ */
+/* 자원                                                                */
+/* ------------------------------------------------------------------ */
+
+export function fetchHostResources(signal?: AbortSignal): Promise<HostResources> {
+  return get<HostResources>("/resources/host", undefined, signal);
+}
+
+export function fetchContainerResources(
+  signal?: AbortSignal,
+): Promise<ContainerResourceRow[]> {
+  return get<ContainerResourceRow[]>("/resources/containers", undefined, signal);
+}
+
+export function fetchServiceResources(signal?: AbortSignal): Promise<ServiceResourceRow[]> {
+  return get<ServiceResourceRow[]>("/resources/services", undefined, signal);
+}
+
+export function fetchResourceWarnings(signal?: AbortSignal): Promise<ResourceWarning[]> {
+  return get<ResourceWarning[]>("/resources/warnings", undefined, signal);
+}
+
+/* ------------------------------------------------------------------ */
+/* 배포 (Phase 3 — 조회 전용)                                           */
+/* ------------------------------------------------------------------ */
+
+export function fetchDeployments(
+  query?: DeploymentListQuery,
+  signal?: AbortSignal,
+): Promise<Deployment[]> {
+  return get<Deployment[]>("/deployments", { ...query }, signal);
+}
+
+export function fetchDeployment(id: string, signal?: AbortSignal): Promise<Deployment> {
+  return get<Deployment>(`/deployments/${encodeURIComponent(id)}`, undefined, signal);
+}
+
+export function fetchDeploymentLogs(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ServiceLogs> {
+  return get<ServiceLogs>(`/deployments/${encodeURIComponent(id)}/logs`, undefined, signal);
+}
+
+/* ------------------------------------------------------------------ */
+/* 이벤트 / 감사 / 검색                                                 */
+/* ------------------------------------------------------------------ */
+
+export function fetchEvents(query?: EventQuery, signal?: AbortSignal): Promise<HubEvent[]> {
+  return get<HubEvent[]>("/events", { ...query }, signal);
+}
+
+export function fetchAuditLogs(limit = 100, signal?: AbortSignal): Promise<AuditLog[]> {
+  return get<AuditLog[]>("/audit-logs", { limit }, signal);
+}
+
+/** 원시 검색 응답 → 그룹화 결과 (문자열/�터 모두 허용) */
+type RawSearchEntry = Record<string, unknown> | string;
+
+interface RawSearchPayload {
+  services?: RawSearchEntry[];
+  containers?: RawSearchEntry[];
+  ports?: RawSearchEntry[];
+  domains?: RawSearchEntry[];
+  images?: RawSearchEntry[];
+  results?: RawSearchEntry[];
+}
+
+function entryLabel(e: RawSearchEntry): string {
+  return typeof e === "string" ? e : String(e.name ?? e.label ?? e.id ?? e.value ?? "");
+}
+
+function entryDetail(e: RawSearchEntry): string | undefined {
+  if (typeof e === "string") return undefined;
+  const parts = [
+    e.description,
+    e.image,
+    e.state,
+    e.service_id,
+    e.hostname,
+    e.protocol,
+    e.exposure,
+  ].filter((x): x is string => typeof x === "string" && x.length > 0);
+  return parts.length ? parts.slice(0, 2).join(" · ") : undefined;
+}
+
+function entryRoute(e: RawSearchEntry, kind: SearchItem["kind"]): string | undefined {
+  if (typeof e === "string") return undefined;
+  const sid = typeof e.service_id === "string" ? e.service_id : null;
+  const cid = typeof e.id === "string" ? e.id : null;
+  switch (kind) {
+    case "service":
+      return sid ? `/services/${sid}` : cid ? `/services/${cid}` : "/services";
+    case "container":
+      return `/containers?focus=${encodeURIComponent(cid ?? "")}`;
+    case "port":
+      return "/ports";
+    case "domain":
+      return sid ? `/services/${sid}` : "/ports";
+    case "image":
+      return "/containers";
+  }
+}
+
+function toItems(list: RawSearchEntry[] | undefined, kind: SearchItem["kind"]): SearchItem[] {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 8).map((e, i) => ({
+    id: `${kind}-${i}-${entryLabel(e)}`,
+    label: entryLabel(e),
+    detail: entryDetail(e),
+    route: entryRoute(e, kind),
+    kind,
+  }));
+}
+
+export async function search(q: string, signal?: AbortSignal): Promise<SearchResults> {
+  const raw = await get<RawSearchPayload>("/search", { q }, signal);
+  const groups: SearchGroup[] = [
+    { key: "services", title: "서비스", items: toItems(raw?.services, "service") },
+    { key: "containers", title: "컨테이너", items: toItems(raw?.containers, "container") },
+    { key: "ports", title: "포트", items: toItems(raw?.ports, "port") },
+    { key: "domains", title: "도메인", items: toItems(raw?.domains, "domain") },
+    { key: "images", title: "이미지", items: toItems(raw?.images, "image") },
+  ].filter((g) => g.items.length > 0);
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  return { query: q, groups, total };
+}
