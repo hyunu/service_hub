@@ -1,0 +1,45 @@
+# 샘플 서비스 — 신규 서비스 생성 시 이 디렉터리를 복사해 시작하세요.
+#   cp -r templates/sample-app /srv/services/<service-id>
+# 그 후 service.yaml의 service.id/name/description을 실제 값으로 수정하고
+# compose.yaml을 실제 구성으로 교체합니다. (hub service validate로 검증)
+
+services:
+  frontend:
+    image: nginx:alpine
+    container_name: sample-app-frontend
+    restart: unless-stopped
+    networks:
+      - hub-proxy
+      - internal
+    # 내부 전용(port exposure=internal) 항목은 publish를 지정하지 않습니다.
+    expose:
+      - "3000"
+    labels:
+      # Traefik이 이 라우팅을 관리합니다(Phase 3에서 자동 구성됨)
+      traefik.enable: "true"
+      traefik.http.routers.sample-app.rule: Host(`sample.home`)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    image: busybox
+    container_name: sample-app-backend
+    restart: unless-stopped
+    command: ["sh", "-c", "echo 'sample backend'; sleep infinity"]
+    networks:
+      - internal          # 외부 노출 없음
+    env_file:
+      - .env              # .env는 Git에 커밋하지 않습니다. .env.example을 참고하세요.
+    volumes:
+      - sample-app-data:/data
+
+networks:
+  hub-proxy:              # Traefik이 연결하는 공유 네트워크
+    external: true
+  internal:               # 서비스 내부 전용 네트워크
+
+volumes:
+  sample-app-data:
