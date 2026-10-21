@@ -110,6 +110,17 @@
   수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
   검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
+### N100 서버 배포 검증 (2026-10-22, 인벤토리 정리 포함)
+- 커밋 `5faa01d` 배포 후 인벤토리가 **자동 정리**되어 컨테이너 행이 40 → **8**로 줄었다
+  (실제 Docker 컨테이너 수와 일치: assetnest 6 + hub 2). 이전 인스턴스/테스트 컨테이너
+  행( hubtest-* 등 )이 모두 제거됨.
+- 배포 전/후 assetnest-* 6개 컨테이너 스냅샷 diff 없음, 볼륨 md5 `1d98df79…` /
+  네트워크 md5 `0e96287e…` 동일.
+- **주의(표기 차이)**: `docker ps`는 `assetnest-server`·`assetnest-trade-api`를
+  "Up 12 hours"로 표시하지만, `docker inspect` 기준 실제로는 `exited`(ExitCode 255,
+  기동 0.6초 후 종료)다. 허브 인벤토리는 **inspect 기준**을 저장하므로 대시보드에는
+  "exited"로 정상 표시된다(허브 쪽 오류 아님).
+
 ### N100 서버 배포 검증 (2026-10-21, 관리자 초기화 포함)
 - 브랜치 `phase2-3-deploy` HEAD `1c82ae4` → 서버 `git pull --ff-only` →
   `docker compose --env-file /srv/service-hub/.env up -d --build` 성공
