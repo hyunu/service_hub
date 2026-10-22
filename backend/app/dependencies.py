@@ -44,4 +44,5 @@ def build_deploy_runner():
     if hasattr(gateway, "_allow_mutations"):
         gateway._allow_mutations = settings.enable_deploy
     return DeployRunner(gateway=gateway, workdir_resolver=resolver,
-                        enable_deploy=settings.enable_deploy)
+                        enable_deploy=settings.enable_deploy,
+                        snapshot_root=settings.deploy_snapshot_dir or None)

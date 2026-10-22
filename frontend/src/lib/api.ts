@@ -1225,6 +1225,22 @@ export function fetchResourceWarnings(signal?: AbortSignal): Promise<ResourceWar
 /* 배포 (Phase 3 — 계획 조회 + 승인 실행)                               */
 /* ------------------------------------------------------------------ */
 
+/** 배포 시점 스냅샷으로 되돌려 재배포한다 (성공한 배포만 가능). */
+export function rollbackDeployment(
+  deploymentId: string,
+): Promise<{
+  deployment_id: string;
+  service_id: string;
+  status: string;
+  error: string | null;
+  rollback_of: string;
+  restored_files: string[];
+}> {
+  return send(`/deployments/${encodeURIComponent(deploymentId)}/rollback`, "POST", {
+    confirmed: true,
+  });
+}
+
 export function fetchDeployments(
   query?: DeploymentListQuery,
   signal?: AbortSignal,

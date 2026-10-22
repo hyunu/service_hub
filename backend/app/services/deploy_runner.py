@@ -41,10 +41,12 @@ def _session():
 
 
 class DeployRunner:
-    def __init__(self, *, gateway, workdir_resolver, enable_deploy: bool) -> None:
+    def __init__(self, *, gateway, workdir_resolver, enable_deploy: bool,
+                 snapshot_root: str | None = None) -> None:
         self.gateway = gateway
         self.workdir_resolver = workdir_resolver
         self.enable_deploy = enable_deploy
+        self.snapshot_root = snapshot_root
         self._active: set[str] = set()
         self._lock = threading.Lock()
 
@@ -80,7 +82,7 @@ class DeployRunner:
                              started_at=_now())
             db.add(dep)
             self._step(db, deployment_id, 0, "queued", "ok", "작업 생성")
-        return self._execute(deployment_id, spec, plan)
+        return self._execute(deployment_id, spec, plan, actor)
 
     # -- 내부 ------------------------------------------------------------
     def _step(self, db, deployment_id: str, seq: int, name: str, status: str,
@@ -96,18 +98,22 @@ class DeployRunner:
             if finished:
                 dep.finished_at = _now()
 
-    def _execute(self, deployment_id: str, spec, plan: dict) -> Deployment:
+    def _execute(self, deployment_id: str, spec, plan: dict, actor: str = "system") -> Deployment:
         service_id = spec.service.id
         project = getattr(spec.deployment, "project_name", None) or service_id
         workdir = self.workdir_resolver(service_id)
         compose_file = getattr(spec.deployment, "compose_file", "compose.yaml")
 
         try:
-            # validating
+            # validating — 배포 정의 파일 스냅샷(롤백용). 실패해도 배포는 계속한다.
+            from .deploy_snapshot import take_snapshot
+            snap = take_snapshot(workdir, self.snapshot_root, service_id,
+                                 deployment_id, actor)
             with _session() as db:
                 self._set_status(db, deployment_id, "validating")
                 self._step(db, deployment_id, 1, "validating", "ok",
-                           f"compose_file={compose_file}")
+                           f"compose_file={compose_file}, "
+                           f"snapshot={snap['dir'] if snap else 'none'}")
             cfg = self.gateway.compose_config(workdir, project)
             if not cfg.get("ok"):
                 return self._fail(deployment_id, 1,

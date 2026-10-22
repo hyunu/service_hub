@@ -1,10 +1,11 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Rocket, ShieldAlert } from "lucide-react";
+import { RefreshCw, Rocket, RotateCcw, ShieldAlert } from "lucide-react";
 import {
   fetchDeployments,
   getDeployPlan,
   applyDeploy,
+  rollbackDeployment,
   isApiError,
   type Deployment,
   type DeployPlan,
@@ -28,6 +29,8 @@ export default function Deployments() {
   const [plan, setPlan] = React.useState<DeployPlan | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [rollbackBusy, setRollbackBusy] = React.useState<string | null>(null);
+  const [rollbackMsg, setRollbackMsg] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -52,6 +55,32 @@ export default function Deployments() {
     } catch {
       setActionError("서비스 정의(JSON)를 해석할 수 없습니다.");
       return null;
+    }
+  };
+
+  const onRollback = async (d: Deployment) => {
+    if (
+      !window.confirm(
+        `배포 ${d.id} 시점의 정의 파일로 되돌려 재배포할까요?\n` +
+          "컨테이너가 재생성될 수 있습니다. DB/볼륨은 자동 롤백되지 않습니다.",
+      )
+    ) {
+      return;
+    }
+    setRollbackBusy(d.id);
+    setRollbackMsg(null);
+    try {
+      const res = await rollbackDeployment(d.id);
+      setRollbackMsg(
+        `롤백 배포 ${res.deployment_id} — ${res.status}` +
+          (res.error ? ` (${res.error})` : "") +
+          ` · 복원 파일: ${res.restored_files.join(", ")}`,
+      );
+      await load();
+    } catch (e) {
+      setRollbackMsg(isApiError(e) ? e.message : "롤백에 실패했습니다.");
+    } finally {
+      setRollbackBusy(null);
     }
   };
 
@@ -104,6 +133,15 @@ export default function Deployments() {
           </Button>
         }
       />
+
+      {rollbackMsg ? (
+        <div
+          className="mb-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+          role="alert"
+        >
+          {rollbackMsg}
+        </div>
+      ) : null}
 
       <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
         <Rocket className="mt-0.5 h-4 w-4 shrink-0" />
@@ -188,6 +226,7 @@ export default function Deployments() {
                 <TableHead className="w-24">결과</TableHead>
                 <TableHead>오류</TableHead>
                 <TableHead className="w-48">요청자</TableHead>
+                <TableHead className="w-24">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -220,6 +259,25 @@ export default function Deployments() {
                   </TableCell>
                   <TableCell className="max-w-80 text-xs text-red-500">{d.error ?? "—"}</TableCell>
                   <TableCell className="text-xs">{d.requested_by}</TableCell>
+                  <TableCell>
+                    {d.status === "succeeded" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onRollback(d);
+                        }}
+                        disabled={rollbackBusy === d.id}
+                        title="이 배포 시점으로 롤백"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        {rollbackBusy === d.id ? "롤백 중…" : "롤백"}
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

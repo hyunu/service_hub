@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     enable_deploy: bool = False           # Phase 3 잠금 — 기본 false
     deploy_allowed_services: list[str] = []   # 비어 있으면 모든 서비스 허용 (게이트 통과 시)
     deploy_compose_timeout: int = 600     # compose 작업 타임아웃(초)
+    # 배포 시점 service.yaml/compose.yaml 스냅샷 위치 (롤백용). 빈 값이면 스냅샷 비활성.
+    deploy_snapshot_dir: str = "/data/deploy-snapshots"
     docker_socket: str = "/var/run/docker.sock"
 
     # 자원 임계값 (%)
