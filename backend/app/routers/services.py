@@ -369,16 +369,25 @@ def service_endpoints(service_id: str, db: Session = Depends(get_db)):
 
 @router.get("/{service_id}/logs")
 def service_logs(service_id: str, tail: int = 200, db: Session = Depends(get_db)):
-    """서비스 소속 컨테이너 로그. Docker 게이트웨이를 통해서만 접근 (임의 셸 없음)."""
+    """서비스 소속 컨테이너 로그. Docker 게이트웨이를 통해서만 접근 (임의 셸 없음).
+
+    프런트엔드 계약: ``lines``는 ``{ts, stream, message}`` 객체 목록이다.
+    (과거에는 문자열 목록을 반환해 UI에서 시각이 "-"로 표시됐다.)
+    """
     from ..dependencies import get_gateway
     _service_or_404(db, service_id)
     gateway = get_gateway()
-    lines: list[str] = []
+    lines: list[dict] = []
     for row in _container_rows(db, service_id):
-        text = gateway.container_logs(row.container_id, tail=tail)
-        if text:
-            for line in text.splitlines():
-                lines.append(f"[{row.name}] {line}")
+        items = gateway.container_log_items(row.container_id, tail=tail)
+        if not items:
+            continue
+        for item in items:
+            lines.append({
+                "ts": item.get("ts"),
+                "stream": item.get("stream") or "stdout",
+                "message": f"[{row.name}] {item.get('message', '')}",
+            })
     return {"lines": lines[-tail:], "truncated": len(lines) > tail}
 
 

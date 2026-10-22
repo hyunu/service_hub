@@ -153,3 +153,25 @@ def test_hub_self_detection_uses_self_label_only():
     assert is_hub_self_labels({"com.hub.managed": "true"}) is False
     assert is_hub_self_labels({}) is False
     assert is_hub_self_labels(None) is False
+
+
+def test_parse_log_stream_multiplexed_and_tty():
+    """Docker 로그 스트림 파싱 — 멀티플렉스(stdout/stderr)와 TTY 원문 모두 지원."""
+    from app.docker_client import normalize_log_ts, parse_log_stream
+
+    def frame(stream_type: int, text: str) -> bytes:
+        payload = text.encode()
+        return bytes([stream_type, 0, 0, 0]) + len(payload).to_bytes(4, "big") + payload
+
+    raw = frame(1, "hello\n") + frame(2, "oops\n")
+    assert parse_log_stream(raw) == [("stdout", "hello\n"), ("stderr", "oops\n")]
+
+    # TTY 컨테이너는 헤더 없이 원문
+    assert parse_log_stream(b"plain line\n") == [("stdout", "plain line\n")]
+    assert parse_log_stream(b"") == []
+
+    # Docker의 RFC3339Nano -> ISO 8601(마이크로초)
+    assert normalize_log_ts("2026-10-22T01:51:51.375691234Z") == \
+        "2026-10-22T01:51:51.375691+00:00"
+    assert normalize_log_ts("not-a-timestamp") is None
+    assert normalize_log_ts("") is None

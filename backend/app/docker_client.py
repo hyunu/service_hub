@@ -25,6 +25,54 @@ def is_hub_self_labels(labels: dict | None) -> bool:
         labels.get("com.docker.compose.project") == HUB_SELF_PROJECT
 
 
+def normalize_log_ts(value: str) -> str | None:
+    """Docker 로그 타임스탬프(RFC3339Nano)를 ISO 8601(마이크로초)로 정규화한다."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    try:
+        if v.endswith("Z"):
+            base, dot, frac = v[:-1].partition(".")
+            if dot:
+                v = f"{base}.{frac[:6].ljust(6, '0')}+00:00"
+            else:
+                v = base + "+00:00"
+        return datetime.fromisoformat(v).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_log_stream(raw: bytes) -> list[tuple[str, str]]:
+    """Docker 로그 스트림을 (stream, text) 목록으로 분해한다.
+
+    비-TTY 컨테이너는 8바이트 멀티플렉스 헤더([[stream][0,0,0][size]] + payload)를 쓰고,
+    TTY 컨테이너는 헤더 없이 원문을 보낸다. 첫 프레임 구조를 검사해 판별한다.
+    """
+    if not raw:
+        return []
+    multiplexed = (
+        len(raw) >= 8
+        and raw[0] in (0, 1, 2)
+        and raw[1:4] == b"\x00\x00\x00"
+        and 8 + int.from_bytes(raw[4:8], "big") <= len(raw)
+    )
+    if not multiplexed:
+        return [("stdout", raw.decode("utf-8", "replace"))]
+
+    frames: list[tuple[str, str]] = []
+    pos = 0
+    while pos + 8 <= len(raw):
+        stream_type = raw[pos]
+        size = int.from_bytes(raw[pos + 4:pos + 8], "big")
+        start, end = pos + 8, pos + 8 + size
+        if end > len(raw):
+            break
+        frames.append(("stderr" if stream_type == 2 else "stdout",
+                       raw[start:end].decode("utf-8", "replace")))
+        pos = end
+    return frames
+
+
 @dataclass
 class DockerStatus:
     connected: bool
@@ -110,13 +158,28 @@ class DockerGateway:
         except Exception:
             return None
 
-    def container_logs(self, container_id: str, tail: int = 200) -> str | None:
+    def container_log_items(self, container_id: str, tail: int = 200) -> list[dict] | None:
+        """컨테이너 로그를 {ts, stream, message} 목록으로 반환한다.
+
+        Docker는 비-TTY 컨테이너 로그를 멀티플렉스 프레임으로 보내므로
+        stdout/stderr를 분리해 파싱한다. 실패 시 None(미지) — 빈 배열로 대체하지 않는다.
+        """
         try:
             client = self._get_client()
             c = client.containers.get(container_id)
-            return c.logs(tail=tail).decode("utf-8", errors="replace")
+            raw = c.logs(tail=tail, timestamps=True, stdout=True, stderr=True)
         except Exception:
             return None
+        items: list[dict] = []
+        for stream, chunk in parse_log_stream(raw):
+            for line in chunk.splitlines():
+                ts_raw, sep, message = line.partition(" ")
+                ts = normalize_log_ts(ts_raw) if sep else None
+                if ts:
+                    items.append({"ts": ts, "stream": stream, "message": message})
+                else:
+                    items.append({"ts": None, "stream": stream, "message": line})
+        return items
 
     def stats(self, container_id: str) -> dict | None:
         try:
@@ -349,10 +412,12 @@ class FakeDockerGateway(DockerGateway):
         gw = DockerGateway.__new__(DockerGateway)
         return [gw._snapshot(c) for c in self.containers]
 
-    def container_logs(self, container_id: str, tail: int = 200) -> str | None:
+    def container_log_items(self, container_id: str, tail: int = 200) -> list[dict] | None:
         for c in self.containers:
             if c.id == container_id:
-                return c.logs(tail=tail).decode()
+                text = c.logs(tail=tail).decode("utf-8", "replace")
+                return [{"ts": None, "stream": "stdout", "message": line}
+                        for line in text.splitlines()]
         return None
 
     def stats(self, container_id: str) -> dict | None:

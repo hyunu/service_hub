@@ -113,7 +113,12 @@ def test_service_logs_via_gateway(client, gateway):
     client.app.state.monitor.run_once()      # 컨테이너를 서비스에 연결
     r = client.get("/api/v1/services/ai-platform/logs?tail=10")
     assert r.status_code == 200
-    assert any("fake log" in line for line in r.json()["lines"])
+    lines = r.json()["lines"]
+    # 프런트엔드 계약: 문자열이 아니라 {ts, stream, message} 객체여야 한다
+    assert lines and all(isinstance(line, dict) for line in lines)
+    assert all({"ts", "stream", "message"} <= set(line) for line in lines)
+    assert any("fake log" in line["message"] for line in lines)
+    assert all(line["message"].startswith("[frontend]") for line in lines)
 
 
 def test_validate_spec_endpoint_ok(client):

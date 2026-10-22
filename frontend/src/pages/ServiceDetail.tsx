@@ -900,7 +900,9 @@ function ServiceLogsPanel({ serviceId }: { serviceId: string }) {
           <div className="max-h-[28rem] overflow-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
             {lines.map((l, i) => (
               <div key={i} className="flex gap-2">
-                <span className="shrink-0 text-muted-foreground">{formatDateTime(l.ts)}</span>
+                {l.ts ? (
+                  <span className="shrink-0 text-muted-foreground">{formatDateTime(l.ts)}</span>
+                ) : null}
                 <span className={l.stream === "stderr" ? "text-red-500" : ""}>{l.message}</span>
               </div>
             ))}
