@@ -15,10 +15,10 @@ vi.mock("react-router-dom", () => ({
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { ...actual, fetchServices: vi.fn(), createService: vi.fn() };
+  return { ...actual, fetchServices: vi.fn(), createService: vi.fn(), fetchSpecGuide: vi.fn() };
 });
 
-import { fetchServices } from "../lib/api";
+import { fetchServices, fetchSpecGuide } from "../lib/api";
 
 const ALL: ServiceListItem[] = [
   {
@@ -58,6 +58,25 @@ const ALL: ServiceListItem[] = [
     last_deployed_at: null,
   },
 ];
+
+const GUIDE = {
+  schema_version: 1,
+  file_location: "/srv/services/<service.id>/service.yaml",
+  create_command: "hub service new <service-id> --dir /srv/services",
+  validate_command: "hub service validate /srv/services/<service-id>",
+  plan_command: "hub deploy plan /srv/services/<service-id>/service.yaml",
+  apply_command: "hub deploy apply <service-id> --yes",
+  minimal_example:
+    "schema_version: 1\nservice:\n  id: my-app\n  description: 무슨 일을 하는 서비스인지 한 줄로 적습니다.",
+  full_example: "schema_version: 1\nservice:\n  id: my-app\n  description: 전체 예시",
+  fields: [
+    { path: "service.id", required: true, type: "string", description: "서비스 고유 ID", allowed: null },
+    { path: "deployment.compose_file", required: true, type: "string", description: "compose 경로", allowed: null },
+  ],
+  rules: ["시크릿 값을 service.yaml에 쓰지 마세요."],
+  enums: {},
+  docs: "docs/SERVICE-YAML.md",
+};
 
 describe("Services 페이지", () => {
   beforeEach(() => {
@@ -172,6 +191,26 @@ describe("Services 페이지", () => {
 
     expect(idInput).toHaveValue("my-app");
     expect(idInput).toHaveFocus();
+  });
+
+  it("service.yaml 안내 다이얼로그에서 예시와 필드를 보여준다", async () => {
+    vi.mocked(fetchSpecGuide).mockResolvedValue(GUIDE);
+    const user = userEvent.setup();
+    render(<Services />);
+    await screen.findByText("AI Platform");
+
+    await user.click(screen.getByRole("button", { name: /service\.yaml 안내/ }));
+    const dialog = await screen.findByRole("dialog");
+    // 최소 예시가 표시된다
+    expect(await within(dialog).findByText(/무슨 일을 하는 서비스인지/)).toBeInTheDocument();
+
+    // 필드 탭
+    await user.click(within(dialog).getByRole("button", { name: /필드/ }));
+    expect(within(dialog).getByText("service.id")).toBeInTheDocument();
+
+    // 규칙 탭
+    await user.click(within(dialog).getByRole("button", { name: /규칙/ }));
+    expect(within(dialog).getByText(/시크릿 값을 service.yaml에 쓰지 마세요/)).toBeInTheDocument();
   });
 
   it("등록 다이얼로그에서 필수값 검증 오류를 표시한다", async () => {

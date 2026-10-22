@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown, Plus, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, BookOpen, Plus, Search, X } from "lucide-react";
 import {
   createService,
   fetchServices,
@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
 import { StatusBadge } from "../components/StatusBadge";
+import { SpecGuideDialog } from "../components/SpecGuide";
 
 const STATUS_OPTIONS = [
   { value: "", label: "상태 전체" },
@@ -360,6 +361,7 @@ export default function Services() {
   const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc");
   const [registerOpen, setRegisterOpen] = React.useState(false);
+  const [guideOpen, setGuideOpen] = React.useState(false);
 
   // 검색어 디바운스 → API 조회
   React.useEffect(() => {
@@ -435,10 +437,16 @@ export default function Services() {
         title="Services"
         description={`등록 서비스 ${items.length}개 · Service Registry (컨테이너와 별개의 관리 정보)`}
         actions={
-          <Button size="sm" onClick={() => setRegisterOpen(true)}>
-            <Plus className="h-4 w-4" />
-            서비스 등록
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={() => setGuideOpen(true)}>
+              <BookOpen className="h-4 w-4" />
+              service.yaml 안내
+            </Button>
+            <Button size="sm" onClick={() => setRegisterOpen(true)}>
+              <Plus className="h-4 w-4" />
+              서비스 등록
+            </Button>
+          </>
         }
       />
 
@@ -578,6 +586,8 @@ export default function Services() {
         onClose={() => setRegisterOpen(false)}
         onCreated={() => void load()}
       />
+
+      <SpecGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
     </div>
   );
 }

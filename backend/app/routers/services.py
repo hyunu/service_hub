@@ -227,6 +227,16 @@ def validate_service_spec(payload: dict, db: Session = Depends(get_db)):
     return {"valid": True, "spec": spec.model_dump(), "errors": []}
 
 
+@router.get("/spec/guide")
+def service_spec_guide():
+    """service.yaml 작성 안내(예시·필드·규칙) — UI/문서 공용, 읽기 전용.
+
+    `/{service_id}` 보다 먼저 선언해 경로가 가려지지 않게 한다.
+    """
+    from ..services.spec_guide import guide
+    return guide()
+
+
 @router.get("/{service_id}")
 def get_service(service_id: str, db: Session = Depends(get_db)):
     svc = _service_or_404(db, service_id)

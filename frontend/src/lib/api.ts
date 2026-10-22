@@ -973,6 +973,34 @@ export function revokeApiKey(id: string): Promise<ApiKeyInfo & { revoked: boolea
 /* 서비스                                                              */
 /* ------------------------------------------------------------------ */
 
+export interface SpecGuideField {
+  path: string;
+  required: boolean;
+  type: string;
+  description: string;
+  allowed: string | null;
+}
+
+export interface SpecGuide {
+  schema_version: number;
+  file_location: string;
+  create_command: string;
+  validate_command: string;
+  plan_command: string;
+  apply_command: string;
+  minimal_example: string;
+  full_example: string;
+  fields: SpecGuideField[];
+  rules: string[];
+  enums: Record<string, string[]>;
+  docs: string;
+}
+
+/** service.yaml 작성 안내 — UI와 문서가 같은 내용을 쓴다. */
+export function fetchSpecGuide(signal?: AbortSignal): Promise<SpecGuide> {
+  return get<SpecGuide>("/services/spec/guide", undefined, signal);
+}
+
 export function fetchServices(
   query?: ServiceListQuery,
   signal?: AbortSignal,
