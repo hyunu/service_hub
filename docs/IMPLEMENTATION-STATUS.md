@@ -96,9 +96,9 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **128 passed, 1 skipped** (관리자 초기화 10건 추가. Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **147 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
-| CLI | `cd cli && uv run pytest` | **28 passed** (관리자 초기화 7건 추가. Phase 1: 14) |
+| CLI | `cd cli && uv run pytest` | **35 passed** (Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
 | 프론트엔드 빌드 | `npm run build --prefix frontend` | **성공** (tsc 0 errors) |
 | 배포 게이트 기본값 | `Settings().deploy_gate()` | **`(False, ...)` — 기본 잠금 확인** |
@@ -172,6 +172,22 @@
   기동 0.6초 후 종료)다. 허브 인벤토리는 **inspect 기준**을 저장하므로 대시보드에는
   "exited"로 정상 표시된다(허브 쪽 오류 아님).
 
+### 실제 배포 실행 검증 (2026-10-22, 최초)
+- `HUB_ENABLE_DEPLOY=true` 상태에서 **실제 컨테이너 생성까지** 검증했다.
+  - 준비: `/srv/services/hubtest-deploy/{service.yaml,compose.yaml}` (alpine 1개, 포트 없음)
+  - `POST /deployments/plan` → **READY** (changes: `web` create, Compose syntax PASS)
+  - `POST /deployments {"service_id":"hubtest-deploy","confirmed":true}` →
+    `202` **status=succeeded** (`finished_at` 기록)
+  - 서버 확인: `hubtest-deploy-web` **Up**, compose project `hubtest-deploy` / service `web`
+  - 인벤토리 판정: `managed`, component `web`, 서비스 상태 **healthy** (1/1 running)
+- 이 과정에서 **라벨 오분류 버그**를 발견해 수정(`ab7b1fd`): `com.hub.managed`만 붙은
+  일반 컨테이너가 허브 자신(hub-self)으로 분류되어 서비스가 `missing`으로 표시됐다.
+  자기 식별을 `com.hub.self`로 한정하고 회귀 테스트를 추가했다.
+- 검증 후 `compose down` + 서비스 레코드/디렉터리/임시 API 키 삭제. assetnest 컨테이너
+  ID 불변, `/srv/services` 원상복구.
+- CLI 원격 인증도 검증: `HUB_API_KEY` 없으면 401 안내, 키 사용 시
+  `HUB_URL=http://<tailnet-ip>:8420/api/v1 hub status` 정상(`n100-pve-dev`, Docker connected).
+
 ### N100 서버 배포 검증 (2026-10-21, 관리자 초기화 포함)
 - 브랜치 `phase2-3-deploy` HEAD `1c82ae4` → 서버 `git pull --ff-only` →
   `docker compose --env-file /srv/service-hub/.env up -d --build` 성공
@@ -192,9 +208,8 @@
 
 ## 알려진 문제 / 확인 필요- **N100 배포 검증 범위** — 2026-10-21 배포 후 인증/UI/WebAuthn/HTTPS 경로는 N100에서
   재검증했다(위 "N100 서버 배포 검증"). 아래 배포 실행(apply) 관련 한계는 그대로 남아 있다.
-- **배포 실행(apply)은 어떤 환경에서도 실 컨테이너 생성까지 검증하지 않았다.** 테스트는
-  Fake Docker 게이트웨이로 상태머신만 검증했고, 실 `docker compose up` 경로는 N100에서
-  잠금 해제 후 최초 검증이 필요하다. 이 한계를 성공으로 보고하지 않는다.
+- 배포 실행(apply)은 2026-10-22 N100에서 **실제 컨테이너 생성까지 검증 완료**
+  (위 "실제 배포 실행 검증"). 실제 사용자 서비스 배포는 아직 수행하지 않았다.
 - 온도 센서(`temperature_c`)는 Linux (`coretemp`/`cpu_thermal`)에서만 값이 나옴 — macOS는 `null`.
 - Traefik 연동, 배포 롤백 자동화, 헬스체크 고도화는 미구현(문서화만).
 - MOTD 백업/복원 실기능은 Linux에서만 동작.
@@ -209,6 +224,6 @@
   `https://n100-pve-dev.tail7d413d.ts.net` 접속 → 설정 마법사에서 관리자 계정 생성
   (비밀번호 8자 이상). 원격 `hub admin reset`이 필요하면 `.env`에
   `HUB_ADMIN_RESET_TOKEN`을 설정하고 백엔드를 재기동한 뒤 사용(1회 사용).
-- 배포 실행 검증은 `HUB_ENABLE_DEPLOY` 잠금 해제 승인 후, 사용하지 않는 테스트 서비스로
-  `hub deploy plan → apply → status → 실제 상태 재조회` 순서로 수행한다.
+- 배포 실행 검증은 완료됐다. 다음은 **실제 사용자 서비스 1건**을 `/srv/services/<id>`에
+  준비해 plan → apply → 상태 확인 순으로 배포하는 것.
 - 다음 UX 후보: 서비스 상세에서 컴포넌트를 직접 편집(그룹핑 결과를 서비스 정의로 승격).
