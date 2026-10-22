@@ -70,6 +70,12 @@ def restore_snapshot(root: str | Path | None, service_id: str, deployment_id: st
             if p.is_file() and p.name != "meta.json":
                 shutil.copy2(p, dst / p.name)
                 restored.append(p.name)
+    except PermissionError as exc:
+        # 서비스 디렉터리가 root 소유면 백엔드(uid 10001)가 쓸 수 없다.
+        raise PermissionError(
+            f"배포 디렉터리에 쓸 수 없습니다: {dst}. "
+            f"`sudo chown -R 10001:10001 {dst}` 후 다시 시도하세요."
+        ) from exc
     except OSError as exc:
         raise FileNotFoundError(f"스냅샷 복원에 실패했습니다: {exc}") from exc
     if not restored:

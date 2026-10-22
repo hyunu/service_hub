@@ -437,6 +437,19 @@ def test_admin_reset_offline_requires_admin(tmp_path):
 
 # ---------------------------------------------------------------- apikey --
 
+def test_service_new_chowns_to_backend_uid_when_root(tmp_path, monkeypatch, capsys):
+    """root로 생성하면 롤백 쓰기 권한을 위해 10001:10001로 소유권을 맞춘다."""
+    import os as _os
+
+    chowned = []
+    monkeypatch.setattr(_os, "geteuid", lambda: 0)
+    monkeypatch.setattr(_os, "chown", lambda p, u, g: chowned.append((str(p), u, g)))
+    main(["service", "new", "chown-app", "--dir", str(tmp_path)])
+    assert chowned, "chown이 호출되지 않음"
+    assert all(u == 10001 and g == 10001 for _, u, g in chowned)
+    assert any(p.endswith("chown-app/service.yaml") for p, _, _ in chowned)
+
+
 def test_apikey_create_offline_and_list(tmp_path, capsys):
     """오프라인 모드로 키를 발급하고, 평문은 1회만 출력된다."""
     import hashlib

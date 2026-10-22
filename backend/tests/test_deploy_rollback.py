@@ -176,3 +176,34 @@ def test_rollback_requires_csrf(app_factory, tmp_path, monkeypatch):
         assert r.json()["code"] == "csrf"
     finally:
         client.__exit__(None, None, None)
+
+
+def test_rollback_permission_error_is_actionable(app_factory, tmp_path, monkeypatch):
+    """서비스 디렉터리가 root 소유라 쓸 수 없으면 chown 안내를 포함한 409."""
+    _make_workdir(tmp_path)
+    monkeypatch.setenv("HUB_DEPLOY_SNAPSHOT_DIR", str(tmp_path / "snaps"))
+    client = app_factory(admin=True, enable_deploy=True, deploy_workdir=str(tmp_path),
+                         gateway_allow_mutations=True)
+    try:
+        from app.db import get_session_factory
+        from app.models import Deployment
+
+        with get_session_factory()() as s:
+            s.add(Deployment(id="dep-perm", service_id="rb-app", status="succeeded",
+                             requested_by="tester", plan={}))
+            s.commit()
+
+        import app.services.deploy_snapshot as snap_mod
+
+        def _deny(*_a, **_k):
+            raise PermissionError(
+                "배포 디렉터리에 쓸 수 없습니다: /srv/services/rb-app. "
+                "`sudo chown -R 10001:10001 /srv/services/rb-app` 후 다시 시도하세요.")
+
+        monkeypatch.setattr(snap_mod, "restore_snapshot", _deny)
+        r = mutate(client, "POST", "/api/v1/deployments/dep-perm/rollback", json={})
+        assert r.status_code == 409
+        assert r.json()["code"] == "snapshot_restore_forbidden"
+        assert "chown" in r.json()["detail"]
+    finally:
+        client.__exit__(None, None, None)

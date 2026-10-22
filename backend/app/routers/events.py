@@ -249,6 +249,9 @@ def rollback_deployment(deployment_id: str, payload: dict | None = None,
     try:
         restored = restore_snapshot(settings.deploy_snapshot_dir, dep.service_id,
                                     deployment_id, workdir)
+    except PermissionError as exc:
+        raise HubError(status_code=409, detail=str(exc),
+                       code="snapshot_restore_forbidden") from exc
     except FileNotFoundError as exc:
         raise HubError(status_code=409, detail=str(exc), code="snapshot_missing") from exc
 

@@ -267,10 +267,22 @@ def cmd_service_new(args: argparse.Namespace) -> None:
     (root / ".env.example").write_text(
         f"# {display} 환경 변수 (이름만)\nEXAMPLE_VAR=\n", encoding="utf-8")
     (root / ".gitignore").write_text(".env\ndata/\nlogs/\n", encoding="utf-8")
-    result = {"created": str(root), "service_id": service_id}
+    # 롤백은 백엔드 컨테이너(uid 10001)가 서비스 디렉터리에 파일을 써야 한다.
+    # root로 실행했다면 소유권을 맞춰 두어 롤백이 권한 오류로 실패하지 않게 한다.
+    owner_note = ""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        uid = gid = 10001
+        for p in [root, *root.rglob("*")]:
+            try:
+                os.chown(p, uid, gid)
+            except OSError:
+                pass
+        owner_note = "\n  소유자: 10001:10001 (롤백 시 허브가 파일을 쓸 수 있도록)"
+
+    result = {"created": str(root), "service_id": service_id, "owner_note": owner_note}
     emit(result, args.json,
          lambda d: print(f"생성됨: {d['created']}\n"
-                         f"  service_id: {d['service_id']}\n"
+                         f"  service_id: {d['service_id']}{d['owner_note']}\n"
                          "  다음: service.yaml 설명을 채우고 "
                          "`hub service validate`로 검증하세요."))
 
