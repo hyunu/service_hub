@@ -138,3 +138,18 @@ def test_container_detail_includes_networks_volumes_stats(client, gateway):
     assert detail["networks"] == ["bridge"]
     assert detail["stats"] is not None
     assert detail["ports"][0]["host_port"] == 18080
+
+
+def test_hub_self_detection_uses_self_label_only():
+    """com.hub.managed만 붙은 일반 서비스 컨테이너를 허브 자신으로 오인하지 않는다.
+
+    실제 배포 검증에서 테스트 컨테이너가 com.hub.managed 라벨 때문에 hub-self로
+    분류되어 서비스가 missing으로 표시되는 문제가 발견되어 회귀 테스트로 고정한다.
+    """
+    from app.docker_client import is_hub_self_labels
+
+    assert is_hub_self_labels({"com.hub.self": "true"}) is True
+    assert is_hub_self_labels({"com.docker.compose.project": "service-hub"}) is True
+    assert is_hub_self_labels({"com.hub.managed": "true"}) is False
+    assert is_hub_self_labels({}) is False
+    assert is_hub_self_labels(None) is False

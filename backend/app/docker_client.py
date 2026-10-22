@@ -11,8 +11,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-HUB_SELF_LABEL = "com.hub.managed"
+# 허브 자신을 식별하는 라벨/프로젝트.
+# 주의: com.hub.managed는 "허브가 관리하는 컨테이너"라는 의미로도 쓰이므로
+# 자기 식별에 사용하면 일반 서비스가 허브로 오인된다. 자기 식별은 com.hub.self만 쓴다.
+HUB_SELF_LABEL = "com.hub.self"
 HUB_SELF_PROJECT = "service-hub"
+
+
+def is_hub_self_labels(labels: dict | None) -> bool:
+    """허브 자신의 컨테이너인가 — com.hub.self 라벨 또는 허브 compose 프로젝트."""
+    labels = labels or {}
+    return bool(labels.get(HUB_SELF_LABEL)) or \
+        labels.get("com.docker.compose.project") == HUB_SELF_PROJECT
 
 
 @dataclass
@@ -263,8 +273,7 @@ class DockerGateway:
             labels=labels,
             container_created_at=_iso(created),
             started_at=_iso(started) if started and not started.startswith("0001") else None,
-            is_hub_self=bool(labels.get(HUB_SELF_LABEL)) or labels.get(
-                "com.docker.compose.project") == HUB_SELF_PROJECT,
+            is_hub_self=is_hub_self_labels(labels),
         )
 
 
