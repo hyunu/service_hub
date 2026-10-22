@@ -83,6 +83,14 @@
   - CLI `hub admin reset`: API 모드(`--url`/`--token`) + 오프라인 모드(`--db`, 백업 후
     `settings`/`webauthn_credentials`만 삭제). `--yes` 없이는 실행하지 않는다.
   - N100 실서버에서 실제로 관리자 초기화 수행 완료(아래 배포 검증 참고).
+- **배포 롤백 (2026-10-22)**:
+  - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
+    기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.
+  - `POST /deployments/{id}/rollback`: 성공한 배포 시점 파일을 복원해 재배포.
+    롤백도 새 배포 레코드 + 감사 로그(`deploy.rollback`).
+  - Deployments 목록에 성공 배포용 "롤백" 버튼.
+  - 서비스 디렉터리 소유권(10001)이 필요 — `hub service new`(root)가 자동 설정,
+    아니면 409와 함께 chown 명령 안내.
 - **컨테이너 수동 그룹핑 (2026-10-21)**:
   - `container_assignments` 테이블: 명시적 연결을 주기 동기화(이름 자동 매칭)보다 우선 적용.
   - `POST /orphans/attach`(다중 일괄), `POST /containers/{id}/detach`,
@@ -96,9 +104,9 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **147 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **159 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
-| CLI | `cd cli && uv run pytest` | **35 passed** (Phase 1: 14) |
+| CLI | `cd cli && uv run pytest` | **36 passed** (Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
 | 프론트엔드 빌드 | `npm run build --prefix frontend` | **성공** (tsc 0 errors) |
 | 배포 게이트 기본값 | `Settings().deploy_gate()` | **`(False, ...)` — 기본 잠금 확인** |
@@ -185,6 +193,9 @@
   자기 식별을 `com.hub.self`로 한정하고 회귀 테스트를 추가했다.
 - 검증 후 `compose down` + 서비스 레코드/디렉터리/임시 API 키 삭제. assetnest 컨테이너
   ID 불변, `/srv/services` 원상복구.
+- **롤백 실서버 검증(2026-10-22)**: v1 배포 → compose를 v2로 수정·배포 → v1 배포 시점으로
+  롤백 → 파일(`compose.yaml`)이 v1로 복원되고 컨테이너 로그도 `version-v1`로 재기동 확인.
+  롤백도 새 배포 레코드(`dep-*`)로 남았다. 검증 데이터는 모두 정리.
 - CLI 원격 인증도 검증: `HUB_API_KEY` 없으면 401 안내, 키 사용 시
   `HUB_URL=http://<tailnet-ip>:8420/api/v1 hub status` 정상(`n100-pve-dev`, Docker connected).
 

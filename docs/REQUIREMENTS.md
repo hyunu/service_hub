@@ -422,6 +422,13 @@ DB 스키마 변경과 데이터 볼륨 변경은 자동 롤백 대상이 아니
 배포 전 설정 파일과 이미지 버전을 기록한다. 백업이 필요한 서비스는 백업 여부를 확인한다.
 롤백 불가/미검증 작업은 사전 경고 및 승인 요구.
 
+구현: 배포 시 `service.yaml`/`compose.yaml`을 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
+기본 `/data/deploy-snapshots`)으로 보관하고, `POST /deployments/{id}/rollback`으로
+그 시점 파일을 복원한 뒤 재배포한다. `.env` 등 숨김/시크릿 파일은 복사하지 않는다.
+서비스 디렉터리는 백엔드(uid 10001)가 쓸 수 있어야 하며
+(`sudo chown -R 10001:10001 /srv/services/<id>`), `hub service new`를 root로
+실행하면 자동으로 소유권을 맞춘다.
+
 ## 14. AI 전용 관리 인터페이스
 
 ### 14.1 구조화된 출력

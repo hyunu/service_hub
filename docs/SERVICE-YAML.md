@@ -138,3 +138,20 @@ hub deploy apply my-app --yes                      # 실제 배포 (게이트 �
 > 계획이 `BLOCKED`면 `impact`에 사유가 표시됩니다(포트 충돌, 필수 env 누락, compose 오류 등).
 > 계획의 `Compose syntax` 검사는 현재 실제 `docker compose config`를 실행하지 않는 한계가 있습니다
 > (실제 검증은 apply의 `validating` 단계에서 수행).
+
+## 7. 롤백과 디렉터리 권한
+
+- 배포할 때마다 `service.yaml`/`compose.yaml`이 스냅샷으로 보관됩니다
+  (`HUB_DEPLOY_SNAPSHOT_DIR`, 기본 `/data/deploy-snapshots`).
+- **Deployments → 성공한 배포 → 롤백** 으로 그 시점 파일을 복원해 재배포할 수 있습니다.
+  롤백도 새 배포 레코드로 남고 감사 로그(`deploy.rollback`)에 기록됩니다.
+- DB/볼륨 변경은 자동 롤백되지 않습니다(요구사항 §13.4).
+- 롤백은 백엔드 컨테이너(uid **10001**)가 서비스 디렉터리에 파일을 써야 하므로,
+  디렉터리 소유자가 10001이어야 합니다.
+
+```bash
+# root로 만든 경우 한 번만 실행
+sudo chown -R 10001:10001 /srv/services/<service-id>
+```
+
+`sudo hub service new ...`로 만들면 소유권이 자동으로 10001:10001로 설정됩니다.
