@@ -41,11 +41,23 @@ def base_url() -> str:
     return os.environ.get("HUB_URL", DEFAULT_BASE).rstrip("/")
 
 
+def _auth_headers() -> dict[str, str]:
+    """MCP/AI 클라이언트와 동일하게 HUB_API_KEY를 X-API-Key로 전달한다.
+
+    백엔드가 루프백이 아닌 주소(HUB_BIND=tailnet IP 등)에 바인드되면
+    읽기 API도 인증이 필요하다.
+    """
+    key = (os.environ.get("HUB_API_KEY") or "").strip()
+    return {"X-API-Key": key} if key else {}
+
+
 def api(path: str, method: str = "GET", payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None) -> Any:
     url = f"{base_url()}{path}"
+    merged_headers = {**_auth_headers(), **(headers or {})}
     try:
-        resp = httpx.request(method, url, json=payload, headers=headers, timeout=10.0)
+        resp = httpx.request(method, url, json=payload, headers=merged_headers or None,
+                             timeout=10.0)
     except httpx.HTTPError as exc:
         raise CliError(
             f"Service Hub에 연결할 수 없습니다: {url}\n"
@@ -55,6 +67,12 @@ def api(path: str, method: str = "GET", payload: dict[str, Any] | None = None,
         ) from exc
     if resp.status_code == 404:
         raise CliError(_detail(resp), EXIT_NOTFOUND)
+    if resp.status_code == 401:
+        raise CliError(
+            f"{_detail(resp)}\n"
+            f"  인증이 필요합니다. HUB_API_KEY를 설정하거나 루프백 바인드에서 실행하세요.",
+            EXIT_REJECTED,
+        )
     if resp.status_code >= 400:
         raise CliError(_detail(resp), EXIT_REJECTED)
     if not resp.content:
@@ -730,6 +748,10 @@ def build_parser() -> argparse.ArgumentParser:
             "  hub deploy plan ./service.yaml --json\n"
             "  hub admin reset --yes            # 관리자 비밀번호 분실 복구\n"
             "  hub apikey create --name claude-code --db /srv/hub/hub.db  # AI/MCP 키 발급\n"
+            "\n"
+            "원격/비루프백 배포:\n"
+            "  export HUB_URL=http://<tailnet-ip>:8420/api/v1\n"
+            "  export HUB_API_KEY=<발급받은 키>\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

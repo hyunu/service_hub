@@ -19,6 +19,7 @@ class _Stub(BaseHTTPRequestHandler):
     post_routes: dict[str, tuple[int, dict]] = {}
 
     def do_GET(self):  # noqa: N802
+        _Stub.last_headers = dict(self.headers)
         code, body = self.routes.get(self.path, (404, {"detail": "not found", "code": "nf"}))
         payload = json.dumps(body).encode()
         self.send_response(code)
@@ -79,6 +80,34 @@ def test_status_human(capsys, stub_server, monkeypatch):
     assert "TestHub" in out
     assert "connected" in out
     assert "9" in out
+
+
+def test_api_key_header_is_sent(stub_server, monkeypatch, capsys):
+    """HUB_API_KEY가 있으면 X-API-Key 헤더로 전달된다 (비루프백 배포)."""
+    url = stub_server({"/api/v1/system/status": (200, {"hub_name": "TestHub"})})
+    monkeypatch.setenv("HUB_URL", url)
+    monkeypatch.setenv("HUB_API_KEY", "hub_test_key")
+    main(["status"])
+    assert _Stub.last_headers.get("X-API-Key") == "hub_test_key"
+
+
+def test_no_api_key_header_when_unset(stub_server, monkeypatch, capsys):
+    url = stub_server({"/api/v1/system/status": (200, {"hub_name": "TestHub"})})
+    monkeypatch.setenv("HUB_URL", url)
+    monkeypatch.delenv("HUB_API_KEY", raising=False)
+    main(["status"])
+    assert "X-API-Key" not in _Stub.last_headers
+
+
+def test_401_explains_api_key(stub_server, monkeypatch, capsys):
+    url = stub_server({"/api/v1/system/status": (401, {
+        "detail": "로그인이 필요합니다", "code": "unauthorized"})})
+    monkeypatch.setenv("HUB_URL", url)
+    monkeypatch.delenv("HUB_API_KEY", raising=False)
+    with pytest.raises(SystemExit):
+        main(["status"])
+    err = capsys.readouterr().err
+    assert "HUB_API_KEY" in err
 
 
 def test_status_json_is_pure_json(stub_server, monkeypatch, capsys):
