@@ -39,7 +39,11 @@ case "$KEEP" in
 esac
 
 STAMP=$(date +%Y%m%d-%H%M%S)
-mkdir -p "$OUT"
+if ! mkdir -p "$OUT" 2>/dev/null; then
+  echo "[오류] 백업 디렉터리를 만들 수 없습니다: $OUT" >&2
+  echo "  sudo로 실행하거나 --out <쓰기 가능한 경로>를 지정하세요." >&2
+  exit 1
+fi
 TARGET="$OUT/hub-$STAMP.db"
 
 volume_mountpoint() {
