@@ -113,6 +113,14 @@
     서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
   - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
   - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
+- **Containers UI 정리 (2026-10-24)**:
+  - 서비스 그룹을 **기본 접힘**으로 변경(`펼친 그룹`만 기억, 새 그룹도 자동 접힘).
+  - 그룹 헤더 슬림화: 이름 + `n/m 실행 중`만. ID는 이름의 슬러그와 다를 때만,
+    개수 칩·서비스 상세 링크는 제거(중복 정보 정리).
+  - 서비스별 강조색(6색 팔레트, ID 해시로 고정) + 왼쪽 컬러 바 + 그룹 간 간격으로
+    시각 구분 강화.
+  - 하단 **Images 섹션을 기본 접힘**으로 변경. 접힌 상태에서 `이미지 N개 · 총 용량` 요약,
+    펼치면 기존 표와 새로고침 버튼 노출(목록은 actions_enabled 확인을 위해 계속 선로딩).
 - **재시작 정책 always 전환 (2026-10-24, N100)**:
   - 요구사항: "부팅 시 무조건 자동 시작" (`unless-stopped`는 수동 stop 후 재부팅 시 복귀하지 않음).
   - `docker update --restart always` 로 **11개 컨테이너 전체** 즉시 적용 +
