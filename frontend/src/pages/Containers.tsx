@@ -585,6 +585,8 @@ export default function Containers() {
   const [actionsEnabled, setActionsEnabled] = React.useState(false);
   const [imageMsg, setImageMsg] = React.useState<string | null>(null);
   const [imageBusy, setImageBusy] = React.useState<string | null>(null);
+  // Images 섹션은 기본적으로 접어 둔다 (평소에는 컨테이너 목록에 집중).
+  const [imagesOpen, setImagesOpen] = React.useState(false);
 
   const state = params.get("state") ?? "";
   const management = params.get("management") ?? "";
@@ -734,6 +736,7 @@ export default function Containers() {
   }, [items, services]);
 
   const hasGroupedServices = groups.some((g) => g.serviceId !== null);
+  const totalImageMb = images.reduce((sum, img) => sum + (img.size_mb ?? 0), 0);
 
   // 기본은 모두 접힘 — "펼친 그룹"만 기억한다 (새로 생긴 그룹도 자동으로 접힌 상태).
   const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set());
@@ -1056,22 +1059,48 @@ export default function Containers() {
       </Card>
 
       <Card className="mt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-          <div>
-            <div className="flex items-center gap-1.5 text-sm font-semibold">
-              <HardDrive className="h-4 w-4" />
-              Images
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              사용 중인 이미지와 허브 이미지는 제거할 수 없습니다.
-              {!actionsEnabled ? " · 조작 비활성화(HUB_ENABLE_DOCKER_ACTIONS=false)" : ""}
-            </div>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => void loadImages()}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            새로고침
-          </Button>
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 ${
+            imagesOpen ? "border-b border-border" : ""
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setImagesOpen((v) => !v)}
+            aria-expanded={imagesOpen}
+            aria-controls="images-panel"
+            className="flex items-start gap-2 text-left"
+          >
+            <ChevronDown
+              className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                imagesOpen ? "" : "-rotate-90"
+              }`}
+            />
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-semibold">
+                <HardDrive className="h-4 w-4" />
+                Images
+              </span>
+              <span className="block text-[11px] text-muted-foreground">
+                {imagesOpen
+                  ? `사용 중인 이미지와 허브 이미지는 제거할 수 없습니다.${
+                      !actionsEnabled ? " · 조작 비활성화(HUB_ENABLE_DOCKER_ACTIONS=false)" : ""
+                    }`
+                  : `이미지 ${images.length}개${
+                      totalImageMb > 0 ? ` · ${formatBytesMb(totalImageMb)}` : ""
+                    } · 펼쳐서 관리`}
+              </span>
+            </span>
+          </button>
+          {imagesOpen ? (
+            <Button variant="outline" size="sm" onClick={() => void loadImages()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              새로고침
+            </Button>
+          ) : null}
         </div>
+        {!imagesOpen ? null : (
+          <div id="images-panel">
         {imageMsg ? (
           <p className="px-4 py-2 text-xs" role="alert">{imageMsg}</p>
         ) : null}
@@ -1115,6 +1144,8 @@ export default function Containers() {
               ))}
             </TableBody>
           </Table>
+        )}
+          </div>
         )}
       </Card>
 

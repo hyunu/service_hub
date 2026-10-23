@@ -228,6 +228,37 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("Images 섹션은 기본적으로 접혀 있고, 펼치면 목록이 보인다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchContainers).mockResolvedValue([]);
+    vi.mocked(fetchServices).mockResolvedValue([]);
+    vi.mocked(fetchImages).mockResolvedValue({
+      items: [
+        {
+          id: "sha256:abc123", short_id: "abc123", tags: ["nginx:alpine"],
+          size_mb: 103, created_at: null,
+        },
+      ],
+      actions_enabled: true,
+    });
+
+    render(<Containers />);
+
+    const toggle = await screen.findByRole("button", { name: /Images/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("nginx:alpine")).not.toBeInTheDocument();
+    // 접힌 상태에서도 요약은 보인다
+    expect(within(toggle).getByText(/이미지 1개/)).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText("nginx:alpine")).toBeInTheDocument();
+    expect(screen.queryByText(/펼쳐서 관리/)).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByText("nginx:alpine")).not.toBeInTheDocument();
+  });
+
   it("연결된 서비스가 없으면 그룹 헤더 없이 평면 목록으로 보인다", async () => {
     vi.mocked(fetchContainers).mockResolvedValue([
       item({
