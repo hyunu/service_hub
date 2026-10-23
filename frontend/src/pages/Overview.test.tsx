@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import Overview from "./Overview";
 import type { ServiceListItem, SystemOverview } from "../lib/api";
 
@@ -15,10 +15,16 @@ vi.mock("../lib/api", async () => {
     fetchOverview: vi.fn(),
     fetchServices: vi.fn(),
     fetchResourceWarnings: vi.fn(),
+    fetchHostResources: vi.fn(),
   };
 });
 
-import { fetchOverview, fetchServices, fetchResourceWarnings } from "../lib/api";
+import {
+  fetchHostResources,
+  fetchOverview,
+  fetchResourceWarnings,
+  fetchServices,
+} from "../lib/api";
 
 const OVERVIEW: SystemOverview = {
   server: {
@@ -77,7 +83,15 @@ const SERVICES: ServiceListItem[] = [
 ];
 
 describe("Overview 페이지", () => {
-  afterEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    // 개별 테스트가 명시하지 않으면 폴링은 실패로 두어 개요 응답 값을 사용한다.
+    vi.mocked(fetchHostResources).mockRejectedValue(new Error("poll disabled in test"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
 
   it("카운트/게이지/서비스 상태/최근 이벤트를 렌더링한다", async () => {
     vi.mocked(fetchOverview).mockResolvedValue(OVERVIEW);
@@ -140,5 +154,34 @@ describe("Overview 페이지", () => {
 
     expect(await screen.findByText("백엔드 연결 실패")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  });
+
+  it("호스트 자원 게이지를 1초마다 갱신한다", async () => {
+    vi.useFakeTimers();
+    const resources = {
+      cpu: { percent: 23.5, cores: 4 },
+      memory: { total_mb: 16384, used_mb: 13440, available_mb: 2944, percent: 82 },
+      disk: { total_gb: 500, used_gb: 320, percent: 64 },
+    };
+    vi.mocked(fetchOverview).mockResolvedValue(OVERVIEW);
+    vi.mocked(fetchServices).mockResolvedValue([]);
+    vi.mocked(fetchResourceWarnings).mockResolvedValue([]);
+    vi.mocked(fetchHostResources).mockResolvedValue(resources);
+
+    render(<Overview />);
+    await act(async () => {});
+    expect(screen.getByRole("img", { name: "CPU 23.5%" })).toBeInTheDocument();
+    expect(fetchHostResources).toHaveBeenCalledTimes(1);
+
+    // 1초 후 새 값으로 갱신
+    vi.mocked(fetchHostResources).mockResolvedValue({
+      ...resources,
+      cpu: { percent: 61.2, cores: 4 },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchHostResources).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("img", { name: "CPU 61.2%" })).toBeInTheDocument();
   });
 });

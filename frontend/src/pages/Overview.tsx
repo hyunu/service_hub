@@ -2,10 +2,12 @@ import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Cpu, HardDrive, MemoryStick, Clock, AlertTriangle, Server } from "lucide-react";
 import {
+  fetchHostResources,
   fetchOverview,
   fetchResourceWarnings,
   fetchServices,
   isApiError,
+  type HostResources,
   type ResourceWarning,
   type ServiceListItem,
   type SystemOverview,
@@ -63,6 +65,10 @@ export default function Overview() {
   const [warnings, setWarnings] = React.useState<ResourceWarning[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+  // 호스트 자원은 별도로 1초 주기 갱신한다 (전체 개요 재조회는 하지 않음).
+  const [host, setHost] = React.useState<HostResources | null>(null);
+  const [hostError, setHostError] = React.useState<string | null>(null);
+  const [hostUpdatedAt, setHostUpdatedAt] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -87,14 +93,53 @@ export default function Overview() {
     void load();
   }, [load]);
 
+  // 화면이 보이는 동안 1초마다 호스트 자원(CPU/메모리/디스크)만 갱신한다.
+  // 탭이 숨겨지면 요청을 보내지 않고, 중복 요청도 막는다.
+  React.useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    const tick = async () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const h = await fetchHostResources();
+        if (cancelled) return;
+        setHost(h);
+        setHostError(null);
+        setHostUpdatedAt(new Date().toISOString());
+      } catch (e) {
+        if (!cancelled) {
+          setHostError(isApiError(e) ? e.message : "호스트 자원 갱신에 실패했습니다.");
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 1000);
+    const onVisibility = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   if (loading && !overview) return <LoadingState label="시스템 상태를 불러오는 중…" />;
   if (error && !overview) return <ErrorState message={error} onRetry={() => void load()} />;
   if (!overview) return <EmptyState message="표시할 데이터가 없습니다." />;
 
   const { server, docker, resources, counts, recent_events: recentEvents, last_monitor_ok_at } = overview;
-  const cpu = resources.cpu;
-  const mem = resources.memory;
-  const disk = resources.disk;
+  // 1초 폴링 결과가 있으면 그 값을, 없으면 개요 응답 값을 쓴다 (동일 스키마).
+  const live = host ?? resources;
+  const cpu = live.cpu;
+  const mem = live.memory;
+  const disk = live.disk;
   const topWarnings = warnings.slice(0, 5);
 
   return (
@@ -159,7 +204,10 @@ export default function Overview() {
           <CardHeader className="pb-1">
             <CardTitle>호스트 자원</CardTitle>
             <CardDescription>
-              마지막 정상 수집 {last_monitor_ok_at ? formatRelative(last_monitor_ok_at) : "—"}
+              1초마다 자동 갱신
+              {hostUpdatedAt ? ` · 마지막 갱신 ${formatRelative(hostUpdatedAt)}` : ""}
+              {" · "}모니터 수집 {last_monitor_ok_at ? formatRelative(last_monitor_ok_at) : "—"}
+              {hostError ? ` · 갱신 실패: ${hostError}` : ""}
             </CardDescription>
           </CardHeader>
           <CardContent>
