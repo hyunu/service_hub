@@ -10,7 +10,14 @@ import {
   Search,
   Sun,
 } from "lucide-react";
-import { fetchEvents, fetchStatus, search, type SearchResults, type SystemStatus } from "../../lib/api";
+import {
+  EVENTS_READ_EVENT,
+  fetchStatus,
+  fetchUnreadEvents,
+  search,
+  type SearchResults,
+  type SystemStatus,
+} from "../../lib/api";
 import { formatRelative } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/AuthContext";
@@ -208,19 +215,21 @@ function NotificationBell() {
     let alive = true;
     const load = async () => {
       try {
-        const events = await fetchEvents({ limit: 100 });
-        if (!alive) return;
-        const n = events.filter((e) => e.severity === "warning" || e.severity === "critical").length;
-        setCount(n);
+        const res = await fetchUnreadEvents();
+        if (alive) setCount(res.count);
       } catch {
         /* 알림 조회 실패는 무시 (페이지 중단 금지) */
       }
     };
     void load();
-    const timer = setInterval(load, 60_000);
+    const timer = setInterval(load, 15_000);
+    // 이벤트 화면에서 확인 처리되면 즉시 뱃지를 갱신한다.
+    const onRead = () => void load();
+    window.addEventListener(EVENTS_READ_EVENT, onRead);
     return () => {
       alive = false;
       clearInterval(timer);
+      window.removeEventListener(EVENTS_READ_EVENT, onRead);
     };
   }, []);
 

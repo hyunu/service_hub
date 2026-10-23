@@ -2,6 +2,8 @@ import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import {
+  EVENTS_READ_EVENT,
+  acknowledgeEvents,
   fetchEvents,
   fetchServices,
   isApiError,
@@ -89,6 +91,13 @@ export default function Events() {
   const pageCount = Math.max(1, Math.ceil(events.length / size));
   const safePage = Math.min(page, pageCount - 1);
   const visible = events.slice(safePage * size, safePage * size + size);
+
+  // 이 화면을 열면 알림을 확인 처리한다 (상단 뱃지 감소).
+  React.useEffect(() => {
+    acknowledgeEvents()
+      .then(() => window.dispatchEvent(new Event(EVENTS_READ_EVENT)))
+      .catch(() => undefined);
+  }, []);
 
   return (
     <div>

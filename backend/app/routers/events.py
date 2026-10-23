@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import AuditLog, Deployment, DeploymentStep, Event
+from ..models import AuditLog, Deployment, DeploymentStep, Event, Setting
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit
 
@@ -28,6 +28,47 @@ def list_events(severity: str | None = None, service_id: str | None = None,
     return {"items": [{"id": e.id, "ts": e.ts, "severity": e.severity, "kind": e.kind,
                        "service_id": e.service_id, "container_id": e.container_id,
                        "message": e.message, "detail": e.detail} for e in rows]}
+
+
+READ_STATE_KEY = "events_state"
+
+
+def _unread_since(db: Session) -> str | None:
+    row = db.get(Setting, READ_STATE_KEY)
+    return (row.value or {}).get("last_read_at") if row else None
+
+
+@router.get("/events/unread-count")
+def events_unread_count(db: Session = Depends(get_db)):
+    """읽지 않은(warning/critical) 이벤트 수 — 상단 알림 뱃지용.
+
+    서버에 저장된 ``last_read_at`` 이후 이벤트만 센다. 이벤트를 확인하면
+    ``POST /events/acknowledge``가 시각을 갱신해 뱃지가 줄어든다.
+    """
+    from sqlalchemy import func
+
+    last = _unread_since(db)
+    stmt = select(func.count(Event.id)).where(
+        Event.severity.in_(["warning", "critical"]))
+    if last:
+        stmt = stmt.where(Event.ts > last)
+    return {"count": int(db.scalar(stmt) or 0), "last_read_at": last}
+
+
+@router.post("/events/acknowledge")
+def acknowledge_events(db: Session = Depends(get_db)):
+    """이벤트 확인 처리 — 이 시각 이후 이벤트만 미읽음으로 센다."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    row = db.get(Setting, READ_STATE_KEY)
+    if row is None:
+        row = Setting(key=READ_STATE_KEY, value={})
+        db.add(row)
+    # JSON 컬럼은 내부 변경이 dirty 추적되지 않으므로 재할당한다.
+    row.value = {**(row.value or {}), "last_read_at": now}
+    db.commit()
+    return {"ok": True, "last_read_at": now}
 
 
 @router.get("/audit-logs")

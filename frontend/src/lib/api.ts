@@ -1366,6 +1366,24 @@ export function fetchEvents(query?: EventQuery, signal?: AbortSignal): Promise<H
   return get<unknown>("/events", { ...query }, signal).then((r) => unwrapList<HubEvent>(r));
 }
 
+/** 이벤트를 확인했을 때 상단 뱃지를 즉시 갱신하기 위한 브라우저 이벤트 */
+export const EVENTS_READ_EVENT = "hub:events-read";
+
+export interface UnreadEvents {
+  count: number;
+  last_read_at: string | null;
+}
+
+/** 상단 알림 뱃지용 — 마지막 확인 이후 warning/critical 이벤트 수 */
+export function fetchUnreadEvents(signal?: AbortSignal): Promise<UnreadEvents> {
+  return get<UnreadEvents>("/events/unread-count", undefined, signal);
+}
+
+/** 이벤트 확인 처리 — 이 시각 이후 이벤트만 미읽음으로 센다 */
+export function acknowledgeEvents(): Promise<{ ok: boolean; last_read_at: string }> {
+  return send("/events/acknowledge", "POST", undefined);
+}
+
 export function fetchAuditLogs(limit = 100, signal?: AbortSignal): Promise<AuditLog[]> {
   return get<unknown>("/audit-logs", { limit }, signal).then((r) => unwrapList<AuditLog>(r));
 }
