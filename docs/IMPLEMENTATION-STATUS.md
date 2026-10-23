@@ -83,6 +83,15 @@
   - CLI `hub admin reset`: API 모드(`--url`/`--token`) + 오프라인 모드(`--db`, 백업 후
     `settings`/`webauthn_credentials`만 삭제). `--yes` 없이는 실행하지 않는다.
   - N100 실서버에서 실제로 관리자 초기화 수행 완료(아래 배포 검증 참고).
+- **MCP 서버 상주 배포·전체 워크플로 (2026-10-23)**:
+  - `hub-mcp.service`(systemd)로 N100에 상주. 엔드포인트 `http://100.85.245.79:8422/mcp`(tailnet 전용).
+  - API 키 `mcp-agents` 발급(서버 `/srv/service-hub/mcp.env`, root 600).
+  - 도구 17개: spec_guide/validate/scaffold/register/plan/apply/status/list/rollback 등.
+  - `POST /services/{id}/scaffold` 추가 — AI가 셸 없이 `/srv/services/<id>`에 정의 파일 생성(게이트/확인/감사).
+  - `/srv/services` 소유권을 10001로 변경(백엔드가 scaffold/롤백 파일을 쓸 수 있도록).
+  - **실서버 MCP e2e**: guide → scaffold → validate → register → plan(READY) → apply(succeeded)
+    → 컨테이너 `mcp-demo-web` 기동(`mcp-deploy-ok` 로그) → deployments/status 확인 → 전부 정리.
+  - OpenCode/Cursor에 원격 MCP 등록(백업 후). Claude Code는 `claude mcp add --transport http`.
 - **이벤트 확인(unread 뱃지, 2026-10-23)**:
   - 상단 뱃지를 "최근 100개 중 warning/critical"에서 **마지막 확인 이후 미읽음 수**로 변경.
   - `GET /events/unread-count`, `POST /events/acknowledge`(CSRF) 추가.
@@ -117,7 +126,7 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **170 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **175 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
 | CLI | `cd cli && uv run pytest` | **36 passed** (Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |

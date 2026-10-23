@@ -106,3 +106,20 @@ Docker 데몬이 `compose.yaml`을 찾을 수 있는 디렉터리여야 하며, 
 - 배포 실행은 `HUB_ENABLE_DEPLOY=true`(기본 false)일 때만 동작하며, 모든 시도는 감사 로그에
   `apikey:<이름>` 주체로 기록됩니다.
 - 키가 유출되면 대시보드에서 즉시 폐기하고 새로 발급하세요.
+
+## 7. 상주 서버 (N100, Streamable HTTP)
+
+N100에는 systemd로 상주 실행 중이다.
+
+| 항목 | 값 |
+|---|---|
+| 엔드포인트 | `http://100.85.245.79:8422/mcp` (tailnet 전용) |
+| 유닛 | `hub-mcp.service` (`systemctl status hub-mcp`) |
+| 환경 | `/srv/service-hub/mcp.env` (root 600, `HUB_URL`/`HUB_API_KEY`) |
+
+```bash
+sudo systemctl status hub-mcp
+sudo journalctl -u hub-mcp -n 50 --no-pager
+```
+
+전체 사용법(도구 17개, 배포 워크플로, 클라이언트 설정)은 `docs/MCP.md`를 참고하세요.
