@@ -735,20 +735,19 @@ export default function Containers() {
 
   const hasGroupedServices = groups.some((g) => g.serviceId !== null);
 
-  // 그룹 접기/펼치기 — 그룹 키 기준으로 기억한다.
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(new Set());
+  // 기본은 모두 접힘 — "펼친 그룹"만 기억한다 (새로 생긴 그룹도 자동으로 접힌 상태).
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set());
   const toggleGroup = React.useCallback((key: string) => {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
   }, []);
-  const allCollapsed =
-    groups.length > 0 && groups.every((g) => collapsedGroups.has(g.key));
+  const allCollapsed = groups.every((g) => !expandedGroups.has(g.key));
   const toggleAllGroups = () =>
-    setCollapsedGroups(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)));
+    setExpandedGroups(allCollapsed ? new Set(groups.map((g) => g.key)) : new Set());
 
   const attachSelected = async () => {
     if (!bulkService) {
@@ -948,13 +947,13 @@ export default function Containers() {
                             <button
                               type="button"
                               onClick={() => toggleGroup(g.key)}
-                              aria-expanded={!collapsedGroups.has(g.key)}
-                              aria-label={`${g.name} 그룹 ${collapsedGroups.has(g.key) ? "펼치기" : "접기"}`}
+                              aria-expanded={expandedGroups.has(g.key)}
+                              aria-label={`${g.name} 그룹 ${expandedGroups.has(g.key) ? "접기" : "펼치기"}`}
                               className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-background/70"
                             >
                               <ChevronDown
                                 className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
-                                  collapsedGroups.has(g.key) ? "-rotate-90" : ""
+                                  expandedGroups.has(g.key) ? "" : "-rotate-90"
                                 }`}
                               />
                               <Boxes className={`h-4 w-4 ${g.accent.icon}`} />
@@ -985,7 +984,7 @@ export default function Containers() {
                       </TableRow>
                     </>
                   ) : null}
-                  {(collapsedGroups.has(g.key) ? [] : g.items).map((c) => (
+                  {(!hasGroupedServices || expandedGroups.has(g.key) ? g.items : []).map((c) => (
                     <TableRow
                       key={c.id}
                       className={`cursor-pointer ${

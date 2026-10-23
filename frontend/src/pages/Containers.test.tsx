@@ -123,8 +123,15 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     expect(within(groupRow).queryByText("2개")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /서비스 상세/ })).not.toBeInTheDocument();
 
-    // 미연결 컨테이너는 별도 그룹
+    // 기본은 접힘 — 행은 보이지 않는다
     expect(screen.getByText("서비스 미지정")).toBeInTheDocument();
+    expect(screen.queryByText("stray-web")).not.toBeInTheDocument();
+    expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
+
+    // 펼치면 행이 나타난다
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "모두 펼치기" }));
+    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
     expect(screen.getByText("stray-web")).toBeInTheDocument();
   });
 
@@ -143,19 +150,27 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     ]);
 
     render(<Containers />);
-    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
-
-    const toggle = screen.getByRole("button", { name: "Flow Plan 그룹 접기" });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // 기본은 접힘
+    expect(await screen.findByText("Flow Plan")).toBeInTheDocument();
     expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
-    // 헤더 요약은 그대로 보인다
-    expect(within(toggle.closest("tr")!).getByText("2/2 실행 중")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Flow Plan 그룹 펼치기" }));
+    const expand = screen.getByRole("button", { name: "Flow Plan 그룹 펼치기" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(expand);
+    expect(screen.getByRole("button", { name: "Flow Plan 그룹 접기" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
+    // 헤더 요약은 그대로 보인다
+    expect(
+      within(screen.getByRole("button", { name: "Flow Plan 그룹 접기" }).closest("tr")!)
+        .getByText("2/2 실행 중"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Flow Plan 그룹 접기" }));
+    expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
   });
 
   it("모두 접기/펼치기 버튼으로 전체 그룹을 제어한다", async () => {
@@ -176,16 +191,17 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     ]);
 
     render(<Containers />);
+    expect(await screen.findByText("Flow Plan")).toBeInTheDocument();
+    expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "모두 펼치기" }));
     expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
+    expect(screen.getByText("stray-web")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "모두 접기" }));
     expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
     expect(screen.queryByText("stray-web")).not.toBeInTheDocument();
     expect(screen.getByText("서비스 미지정")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "모두 펼치기" }));
-    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
-    expect(screen.getByText("stray-web")).toBeInTheDocument();
   });
 
   it("docker stats 값을 CPU/메모리 컬럼에 표시하고, 중지 컨테이너는 N/A로 둔다", async () => {
@@ -203,6 +219,8 @@ describe("Containers 목록 — 서비스 그룹화", () => {
 
     render(<Containers />);
 
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "모두 펼치기" }));
     expect(await screen.findByText("12.3%")).toBeInTheDocument();
     expect(screen.getByText("128 MB")).toBeInTheDocument();
     // stats 가 없는(중지) 컨테이너는 N/A
