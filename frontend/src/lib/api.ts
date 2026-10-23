@@ -185,6 +185,8 @@ export interface ServiceEndpoint {
   type: string;
   exposure: Exposure;
   hostname: string | null;
+  /** 호스트에 게시된 포트 (exposure=host) */
+  host_port?: number | null;
   container: string | null;
   container_port: number | null;
   enabled?: boolean;

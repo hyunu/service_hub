@@ -2,6 +2,7 @@ import * as React from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
+  Copy,
   ExternalLink,
   GitBranch,
   HardDrive,
@@ -48,6 +49,17 @@ import { Select } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { StatusBadge, StatusDot } from "../components/StatusBadge";
 import { LineChart } from "../components/LineChart";
+
+/** 엔드포인트 접속 URL 계산 — 허브에 접속한 호스트를 기준으로 한다. */
+function endpointAccessUrl(ep: ServiceEndpoint): string | null {
+  const scheme = ep.type === "https" ? "https" : "http";
+  if (ep.exposure === "proxy" && ep.hostname) return `${scheme}://${ep.hostname}`;
+  if (ep.exposure === "host" && ep.host_port) {
+    const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    return `${scheme}://${host}:${ep.host_port}`;
+  }
+  return null;
+}
 
 type TabKey = "overview" | "containers" | "endpoints" | "deployment" | "resources" | "logs" | "configuration" | "events";
 
@@ -206,6 +218,73 @@ export default function ServiceDetail() {
         {/* ---------------- Overview ---------------- */}
         <TabsContent value="overview">
           <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-3">
+              <CardHeader className="pb-1">
+                <CardTitle>접속 정보</CardTitle>
+                <CardDescription>
+                  등록된 엔드포인트의 접속 주소와 포트입니다. (주소는 현재 접속한 호스트 기준)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {service.endpoints.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    등록된 엔드포인트가 없습니다. 서비스 정의에 endpoints 를 추가하세요.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {service.endpoints.map((ep) => {
+                      const url = endpointAccessUrl(ep);
+                      return (
+                        <div
+                          key={ep.name}
+                          className="flex flex-wrap items-center justify-between gap-2 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">{ep.name}</div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {EXPOSURE_LABEL[ep.exposure] ?? ep.exposure} · {ep.type}
+                              {ep.container ? ` · ${ep.container}:${ep.container_port ?? "—"}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {url ? (
+                              <>
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="font-mono text-xs text-primary hover:underline"
+                                >
+                                  {url}
+                                </a>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`${ep.name} 주소 복사`}
+                                  onClick={() => void navigator.clipboard.writeText(url)}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="font-mono text-xs text-muted-foreground">
+                                내부 전용 ({ep.container ?? "—"}:{ep.container_port ?? "—"})
+                              </span>
+                            )}
+                            {ep.host_port ? (
+                              <Badge variant="outline">
+                                포트 {ep.host_port} → {ep.container_port ?? "—"}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="lg:col-span-2">
               <CardHeader className="pb-1">
                 <CardTitle>서비스 정보</CardTitle>
