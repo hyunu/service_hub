@@ -236,6 +236,58 @@ class DockerGateway:
                     out[cid] = None
         return out
 
+    # ------------------- 컨테이너/이미지 조작 (allow_mutations 필수) -------------------
+    def container_start(self, container_id: str) -> dict:
+        self._require_mutation()
+        try:
+            self._get_client().containers.get(container_id).start()
+            return {"ok": True}
+        except Exception as exc:  # docker.errors.* 포함 — 내부 경로는 노출하지 않는다
+            return {"ok": False, "error": str(exc)[:300]}
+
+    def container_stop(self, container_id: str, timeout: int = 10) -> dict:
+        self._require_mutation()
+        try:
+            self._get_client().containers.get(container_id).stop(timeout=timeout)
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+
+    def container_remove(self, container_id: str) -> dict:
+        """중지된 컨테이너만 제거한다 (force 사용 안 함)."""
+        self._require_mutation()
+        try:
+            self._get_client().containers.get(container_id).remove(force=False)
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+
+    def list_images(self) -> list[dict]:
+        try:
+            client = self._get_client()
+            images = list(client.images.list())
+        except Exception:
+            return []
+        out: list[dict] = []
+        for img in images:
+            attrs = getattr(img, "attrs", {}) or {}
+            out.append({
+                "id": img.id,
+                "short_id": getattr(img, "short_id", img.id[:19]),
+                "tags": list(img.tags or []),
+                "size_mb": round((attrs.get("Size") or 0) / 1048576, 1),
+                "created_at": attrs.get("Created"),
+            })
+        return out
+
+    def image_remove(self, image_id: str) -> dict:
+        self._require_mutation()
+        try:
+            self._get_client().images.remove(image=image_id, force=False)
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:300]}
+
     # ------------------------------------------------------------------
 
     def compose_config(self, project_dir: str, project_name: str) -> dict:
@@ -419,6 +471,47 @@ class FakeDockerGateway(DockerGateway):
                 return [{"ts": None, "stream": "stdout", "message": line}
                         for line in text.splitlines()]
         return None
+
+
+    def container_start(self, container_id: str) -> dict:
+        self._require_mutation()
+        for c in self.containers:
+            if c.id == container_id:
+                c.attrs.setdefault("State", {})["Status"] = "running"
+                self.mutation_log.append({"action": "container_start", "id": container_id})
+                return {"ok": True}
+        return {"ok": False, "error": "not found"}
+
+    def container_stop(self, container_id: str, timeout: int = 10) -> dict:
+        self._require_mutation()
+        for c in self.containers:
+            if c.id == container_id:
+                c.attrs.setdefault("State", {})["Status"] = "exited"
+                self.mutation_log.append({"action": "container_stop", "id": container_id})
+                return {"ok": True}
+        return {"ok": False, "error": "not found"}
+
+    def container_remove(self, container_id: str) -> dict:
+        self._require_mutation()
+        before = len(self.containers)
+        self.containers = [c for c in self.containers if c.id != container_id]
+        if len(self.containers) == before:
+            return {"ok": False, "error": "not found"}
+        self.mutation_log.append({"action": "container_remove", "id": container_id})
+        return {"ok": True}
+
+    def list_images(self) -> list[dict]:
+        return list(getattr(self, "images", []))
+
+    def image_remove(self, image_id: str) -> dict:
+        self._require_mutation()
+        images = list(getattr(self, "images", []))
+        kept = [i for i in images if i.get("id") != image_id]
+        if len(kept) == len(images):
+            return {"ok": False, "error": "not found"}
+        self.images = kept
+        self.mutation_log.append({"action": "image_remove", "id": image_id})
+        return {"ok": True}
 
     def stats(self, container_id: str) -> dict | None:
         for c in self.containers:

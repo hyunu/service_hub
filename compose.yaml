@@ -30,6 +30,10 @@ services:
       # 컨테이너 안에서는 platform.node()가 컨테이너 ID를 반환한다.
       # 실제 호스트명을 표시하려면 .env에 HUB_HOST_HOSTNAME=<호스트명>을 넣는다.
       HUB_HOST_HOSTNAME: "${HUB_HOST_HOSTNAME:-}"
+      # 컨테이너/이미지 시작·정지·제거 — 기본 잠금. 보호 대상은 콤마 구분.
+      HUB_ENABLE_DOCKER_ACTIONS: "${HUB_ENABLE_DOCKER_ACTIONS:-false}"
+      HUB_PROTECTED_CONTAINERS: "${HUB_PROTECTED_CONTAINERS:-}"
+      HUB_PROTECTED_PROJECTS: "${HUB_PROTECTED_PROJECTS:-}"
       # 관리자 비밀번호 분실 복구 토큰 (hub admin reset). 비어 있으면 루프백에서만 초기화 가능.
       # 설정하면 같은 값을 X-Hub-Admin-Reset-Token 헤더로 보낼 수 있다 (1회 사용 후 폐기).
       HUB_ADMIN_RESET_TOKEN: "${HUB_ADMIN_RESET_TOKEN:-}"

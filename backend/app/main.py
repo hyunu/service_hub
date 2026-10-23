@@ -16,6 +16,7 @@ from .monitor import Monitor
 from .routers import apikeys as apikeys_router
 from .routers import auth as auth_router
 from .routers import containers as containers_router
+from .routers import docker_actions as docker_actions_router
 from .routers import events as events_router
 from .routers import ports as ports_router
 from .routers import resources as resources_router
@@ -33,6 +34,11 @@ def create_app(settings: Settings | None = None,
     set_settings(settings)
     monitor = Monitor(gateway or DockerGateway(socket_path=_socket_url(settings)),
                       settings=settings)
+    # 변경 권한: 배포 또는 Docker 조작 중 하나라도 켜져 있으면 허용한다.
+    # (라우터가 각각의 게이트를 별도로 강제한다 — 방어 심층)
+    if hasattr(monitor.gateway, "_allow_mutations"):
+        monitor.gateway._allow_mutations = bool(
+            settings.enable_deploy or settings.enable_docker_actions)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -83,6 +89,7 @@ def create_app(settings: Settings | None = None,
     app.include_router(system_router.router, prefix=f"{p}")
     app.include_router(services_router, prefix=f"{p}")
     app.include_router(containers_router.router, prefix=f"{p}")
+    app.include_router(docker_actions_router.router, prefix=f"{p}")
     app.include_router(ports_router.router, prefix=f"{p}")
     app.include_router(resources_router.router, prefix=f"{p}")
     app.include_router(events_router.router, prefix=f"{p}")

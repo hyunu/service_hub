@@ -1,17 +1,22 @@
 import * as React from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Link2, RefreshCw, ScrollText, X } from "lucide-react";
+import { HardDrive, Link2, Play, RefreshCw, ScrollText, Square, Trash2, X } from "lucide-react";
 import {
   attachOrphan,
   attachOrphans,
+  containerAction,
   fetchContainer,
   fetchContainers,
+  fetchImages,
   fetchOrphans,
   fetchServices,
   isApiError,
+  removeContainer,
+  removeImage,
   reviewOrphan,
   type ContainerListItem,
   type ContainerDetail,
+  type ImageInfo,
   type ManagementState,
   type OrphanItem,
   type ServiceListItem,
@@ -58,9 +63,11 @@ function stateLevel(state: string): "ok" | "warn" | "unknown" {
 function DetailDrawer({
   containerId,
   onClose,
+  actionsEnabled,
 }: {
   containerId: string;
   onClose: () => void;
+  actionsEnabled: boolean;
 }) {
   const navigate = useNavigate();
   const [detail, setDetail] = React.useState<ContainerDetail | null>(null);
@@ -138,6 +145,38 @@ function DetailDrawer({
     }
   };
 
+  const runAction = async (action: "start" | "stop") => {
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      await containerAction(containerId, action);
+      setActionMsg(action === "start" ? "컨테이너를 시작했습니다." : "컨테이너를 정지했습니다.");
+      await load();
+    } catch (e) {
+      setActionMsg(isApiError(e) ? e.message : "작업에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeCurrent = async () => {
+    if (!detail) return;
+    const typed = window.prompt(
+      `컨테이너를 제거합니다. 계속하려면 이름을 정확히 입력하세요:\n${detail.name}`,
+      "",
+    );
+    if (typed === null) return;
+    setBusy(true);
+    setActionMsg(null);
+    try {
+      await removeContainer(detail.id, typed);
+      onClose();
+    } catch (e) {
+      setActionMsg(isApiError(e) ? e.message : "제거에 실패했습니다.");
+      setBusy(false);
+    }
+  };
+
   const stats = detail?.stats ?? null;
 
   return (
@@ -187,6 +226,62 @@ function DetailDrawer({
 
           {detail ? (
             <>
+              <section>
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  컨테이너 작업
+                </h3>
+                <div className="rounded-md border border-border px-3 py-2.5">
+                  <div className="flex flex-wrap gap-2">
+                    {detail.state === "running" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runAction("stop")}
+                        disabled={!actionsEnabled || busy}
+                        title={actionsEnabled ? "정지" : "HUB_ENABLE_DOCKER_ACTIONS=false"}
+                      >
+                        <Square className="h-3.5 w-3.5" />
+                        정지
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runAction("start")}
+                        disabled={!actionsEnabled || busy}
+                        title={actionsEnabled ? "시작" : "HUB_ENABLE_DOCKER_ACTIONS=false"}
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        시작
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void removeCurrent()}
+                      disabled={!actionsEnabled || busy || detail.state === "running"}
+                      title={
+                        detail.state === "running"
+                          ? "실행 중에는 제거할 수 없습니다. 먼저 정지하세요."
+                          : actionsEnabled
+                            ? "제거"
+                            : "HUB_ENABLE_DOCKER_ACTIONS=false"
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      제거
+                    </Button>
+                  </div>
+                  {actionMsg ? (
+                    <p className="mt-2 text-xs" role="alert">{actionMsg}</p>
+                  ) : null}
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                    작업은 감사 로그에 기록됩니다. 허브 자신과 보호 대상
+                    (HUB_PROTECTED_CONTAINERS/PROJECTS)은 조작할 수 없습니다.
+                  </p>
+                </div>
+              </section>
+
               <section>
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   기본 정보
@@ -434,6 +529,12 @@ export default function Containers() {
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkMsg, setBulkMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
 
+  // 이미지 관리 (읽기 + 제거)
+  const [images, setImages] = React.useState<ImageInfo[]>([]);
+  const [actionsEnabled, setActionsEnabled] = React.useState(false);
+  const [imageMsg, setImageMsg] = React.useState<string | null>(null);
+  const [imageBusy, setImageBusy] = React.useState<string | null>(null);
+
   const state = params.get("state") ?? "";
   const management = params.get("management") ?? "";
 
@@ -465,6 +566,41 @@ export default function Containers() {
   React.useEffect(() => {
     fetchServices().then(setServices).catch(() => setServices([]));
   }, []);
+
+  const loadImages = React.useCallback(async () => {
+    try {
+      const res = await fetchImages();
+      setImages(res.items);
+      setActionsEnabled(res.actions_enabled);
+    } catch {
+      setImages([]);
+      setActionsEnabled(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadImages();
+  }, [loadImages]);
+
+  const removeImageAction = async (img: ImageInfo) => {
+    const label = img.tags[0] ?? img.short_id ?? img.id;
+    const typed = window.prompt(
+      `이미지를 제거합니다. 계속하려면 태그를 정확히 입력하세요:\n${label}`,
+      "",
+    );
+    if (typed === null) return;
+    setImageBusy(img.id);
+    setImageMsg(null);
+    try {
+      await removeImage(img.id, typed);
+      setImageMsg(`이미지 ${label}를 제거했습니다.`);
+      await loadImages();
+    } catch (e) {
+      setImageMsg(isApiError(e) ? e.message : "이미지 제거에 실패했습니다.");
+    } finally {
+      setImageBusy(null);
+    }
+  };
 
   const canSelect = (c: ContainerListItem) =>
     c.management_state === "unmanaged" || c.management_state === "unknown";
@@ -724,9 +860,73 @@ export default function Containers() {
         )}
       </Card>
 
+      <Card className="mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold">
+              <HardDrive className="h-4 w-4" />
+              Images
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              사용 중인 이미지와 허브 이미지는 제거할 수 없습니다.
+              {!actionsEnabled ? " · 조작 비활성화(HUB_ENABLE_DOCKER_ACTIONS=false)" : ""}
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void loadImages()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            새로고침
+          </Button>
+        </div>
+        {imageMsg ? (
+          <p className="px-4 py-2 text-xs" role="alert">{imageMsg}</p>
+        ) : null}
+        {images.length === 0 ? (
+          <EmptyState message="이미지가 없거나 조회할 수 없습니다." />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>태그</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead className="w-28">크기</TableHead>
+                <TableHead className="w-20">작업</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {images.map((img) => (
+                <TableRow key={img.id}>
+                  <TableCell className="font-mono text-xs">
+                    {img.tags.length > 0 ? img.tags.join(", ") : "<none>"}
+                  </TableCell>
+                  <TableCell className="font-mono text-[11px] text-muted-foreground">
+                    {(img.short_id ?? img.id).replace(/^sha256:/, "").slice(0, 12)}
+                  </TableCell>
+                  <TableCell className="tabular-nums text-xs">
+                    {img.size_mb != null ? `${img.size_mb} MB` : "N/A"}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void removeImageAction(img)}
+                      disabled={!actionsEnabled || imageBusy === img.id}
+                      title={actionsEnabled ? "이미지 제거" : "HUB_ENABLE_DOCKER_ACTIONS=false"}
+                      aria-label={`${img.tags[0] ?? img.id} 제거`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
+
       {focus ? (
         <DetailDrawer
           containerId={focus}
+          actionsEnabled={actionsEnabled}
           onClose={() => {
             setFocus(null);
             const next = new URLSearchParams(params);

@@ -1225,6 +1225,50 @@ export function fetchResourceWarnings(signal?: AbortSignal): Promise<ResourceWar
 /* 배포 (Phase 3 — 계획 조회 + 승인 실행)                               */
 /* ------------------------------------------------------------------ */
 
+/* ---------------------- Docker 조작 (컨테이너/이미지) ---------------------- */
+
+export interface ImageInfo {
+  id: string;
+  short_id?: string;
+  tags: string[];
+  size_mb?: number | null;
+  created_at?: string | null;
+}
+
+export interface ImagesResponse {
+  items: ImageInfo[];
+  /** HUB_ENABLE_DOCKER_ACTIONS — false면 조작 버튼을 비활성화한다. */
+  actions_enabled: boolean;
+}
+
+export function fetchImages(signal?: AbortSignal): Promise<ImagesResponse> {
+  return get<ImagesResponse>("/images", undefined, signal);
+}
+
+/** 컨테이너 시작/정지 (게이트 필요, 감사 로그 기록). */
+export function containerAction(
+  id: string,
+  action: "start" | "stop",
+): Promise<{ ok: boolean; container_id: string; action: string }> {
+  return send(`/containers/${encodeURIComponent(id)}/${action}`, "POST", undefined);
+}
+
+/** 컨테이너 제거 — 실행 중이면 거부, confirm에 정확한 이름 필요. */
+export function removeContainer(
+  id: string,
+  confirm: string,
+): Promise<{ ok: boolean; container_id: string; action: string }> {
+  return send(`/containers/${encodeURIComponent(id)}/remove`, "POST", { confirm });
+}
+
+/** 이미지 제거 — 사용 중이면 거부, confirm에 태그/ID 필요. */
+export function removeImage(
+  id: string,
+  confirm: string,
+): Promise<{ ok: boolean; image_id: string; action: string }> {
+  return send(`/images/${encodeURIComponent(id)}/remove`, "POST", { confirm });
+}
+
 /** 배포 시점 스냅샷으로 되돌려 재배포한다 (성공한 배포만 가능). */
 export function rollbackDeployment(
   deploymentId: string,

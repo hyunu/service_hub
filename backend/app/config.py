@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     deploy_compose_timeout: int = 600     # compose 작업 타임아웃(초)
     # 배포 시점 service.yaml/compose.yaml 스냅샷 위치 (롤백용). 빈 값이면 스냅샷 비활성.
     deploy_snapshot_dir: str = "/data/deploy-snapshots"
+
+    # 컨테이너/이미지 시작·정지·제거 (파괴적). 기본 잠금.
+    enable_docker_actions: bool = False
+    # 보호 대상(콤마 구분). 이름 접두사/정확히 일치, compose 프로젝트명.
+    protected_containers: str = ""
+    protected_projects: str = ""
     docker_socket: str = "/var/run/docker.sock"
 
     # 자원 임계값 (%)

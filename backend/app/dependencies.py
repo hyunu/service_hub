@@ -42,7 +42,8 @@ def build_deploy_runner():
     gateway = get_gateway()
     # 실제 배포 경로에서만 변경 권한을 부여한다 (잠금 시에는 무의미).
     if hasattr(gateway, "_allow_mutations"):
-        gateway._allow_mutations = settings.enable_deploy
+        gateway._allow_mutations = bool(
+            settings.enable_deploy or settings.enable_docker_actions)
     return DeployRunner(gateway=gateway, workdir_resolver=resolver,
                         enable_deploy=settings.enable_deploy,
                         snapshot_root=settings.deploy_snapshot_dir or None)
