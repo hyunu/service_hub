@@ -48,6 +48,29 @@ const CHIPS: FilterChip[] = [
   { key: "unknown", label: "상태 불명", params: { management: "unknown" } },
 ];
 
+/** 서비스 그룹 구분용 강조 색 — 서비스 ID 해시로 안정적으로 배정한다. */
+const GROUP_ACCENTS = [
+  { border: "border-l-sky-500", icon: "text-sky-600 dark:text-sky-400", tint: "bg-sky-500/5" },
+  { border: "border-l-violet-500", icon: "text-violet-600 dark:text-violet-400", tint: "bg-violet-500/5" },
+  { border: "border-l-emerald-500", icon: "text-emerald-600 dark:text-emerald-400", tint: "bg-emerald-500/5" },
+  { border: "border-l-amber-500", icon: "text-amber-600 dark:text-amber-400", tint: "bg-amber-500/5" },
+  { border: "border-l-rose-500", icon: "text-rose-600 dark:text-rose-400", tint: "bg-rose-500/5" },
+  { border: "border-l-cyan-500", icon: "text-cyan-600 dark:text-cyan-400", tint: "bg-cyan-500/5" },
+];
+
+const UNGROUPED_ACCENT = {
+  border: "border-l-slate-400 dark:border-l-slate-600",
+  icon: "text-muted-foreground",
+  tint: "bg-muted/20",
+};
+
+function accentFor(id: string | null) {
+  if (!id) return UNGROUPED_ACCENT;
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+  return GROUP_ACCENTS[h % GROUP_ACCENTS.length];
+}
+
 function chipMatches(chip: FilterChip, params: URLSearchParams): boolean {
   return Object.entries(chip.params).every(([k, v]) => params.get(k) === v);
 }
@@ -656,6 +679,7 @@ export default function Containers() {
         key: `svc:${sid}`,
         serviceId: sid as string | null,
         name: nameOf(sid),
+        accent: accentFor(sid),
         running: cs.filter((c) => c.state === "running").length,
         items: [...cs].sort((x, y) =>
           (x.component_name ?? x.name).localeCompare(y.component_name ?? y.name, "ko"),
@@ -666,6 +690,7 @@ export default function Containers() {
         key: "ungrouped",
         serviceId: null,
         name: "서비스 미지정",
+        accent: accentFor(null),
         running: ungrouped.filter((c) => c.state === "running").length,
         items: [...ungrouped].sort((a, b) => a.name.localeCompare(b.name, "ko")),
       });
@@ -849,49 +874,66 @@ export default function Containers() {
               {groups.map((g) => (
                 <React.Fragment key={g.key}>
                   {hasGroupedServices ? (
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableCell colSpan={10} className="py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
-                          {g.serviceId ? (
-                            <>
-                              <span className="text-xs font-semibold">{g.name}</span>
-                              <span className="font-mono text-[11px] text-muted-foreground">
+                    <>
+                      {g.key !== groups[0].key ? (
+                        <TableRow aria-hidden="true" className="hover:bg-transparent">
+                          <TableCell colSpan={10} className="h-3 border-0 p-0" />
+                        </TableRow>
+                      ) : null}
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={10}
+                          className={`border-l-4 ${g.accent.border} ${g.accent.tint} py-2`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Boxes className={`h-4 w-4 ${g.accent.icon}`} />
+                              <span className="text-sm font-semibold">{g.name}</span>
+                            </span>
+                            {g.serviceId ? (
+                              <code className="rounded bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                                 {g.serviceId}
-                              </span>
-                              <Badge
-                                variant={
+                              </code>
+                            ) : null}
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-2 py-0.5">
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
                                   g.items.length > 0 && g.running === g.items.length
-                                    ? "ok"
-                                    : "warn"
-                                }
-                              >
+                                    ? "bg-emerald-500"
+                                    : "bg-amber-500"
+                                }`}
+                              />
+                              <span className="text-[11px] font-medium tabular-nums">
                                 {g.running}/{g.items.length} 실행 중
-                              </Badge>
+                              </span>
+                            </span>
+                            {g.serviceId ? (
                               <Link
                                 to={`/services/${encodeURIComponent(g.serviceId)}`}
-                                className="text-[11px] text-primary hover:underline"
+                                className="text-[11px] font-medium text-primary hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                서비스 상세
+                                서비스 상세 →
                               </Link>
-                            </>
-                          ) : (
-                            <span className="text-xs font-semibold text-muted-foreground">
-                              {g.name}
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">
+                                서비스에 연결되지 않은 컨테이너
+                              </span>
+                            )}
+                            <span className="ml-auto rounded-full bg-background/70 px-2 py-0.5 text-[11px] font-medium tabular-nums">
+                              {g.items.length}개
                             </span>
-                          )}
-                          <span className="ml-auto text-[11px] text-muted-foreground">
-                            {g.items.length}개
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    </>
                   ) : null}
                   {g.items.map((c) => (
                     <TableRow
                       key={c.id}
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${
+                        hasGroupedServices ? `${g.accent.tint} [&>td:first-child]:border-l-4 ${g.accent.border}` : ""
+                      }`}
                       tabIndex={0}
                       role="button"
                       aria-label={`${c.name} 상세 보기`}

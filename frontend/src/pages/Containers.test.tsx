@@ -113,7 +113,7 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     expect(within(groupRow).getByText("flow-plan")).toBeInTheDocument();
     expect(within(groupRow).getByText("2/2 실행 중")).toBeInTheDocument();
     expect(within(groupRow).getByText("2개")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "서비스 상세" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /서비스 상세/ })).toHaveAttribute(
       "href",
       "/services/flow-plan",
     );
