@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Containers from "./Containers";
 import type { ContainerDetail, ContainerListItem } from "../lib/api";
 
@@ -120,6 +121,66 @@ describe("Containers 목록 — 서비스 그룹화", () => {
 
     // 미연결 컨테이너는 별도 그룹
     expect(screen.getByText("서비스 미지정")).toBeInTheDocument();
+    expect(screen.getByText("stray-web")).toBeInTheDocument();
+  });
+
+  it("그룹을 접고 펼칠 수 있다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({ id: "c1", name: "flow-plan-ui", component_name: "ui" }),
+      item({ id: "c2", name: "flow-plan-backend", component_name: "backend" }),
+    ]);
+    vi.mocked(fetchServices).mockResolvedValue([
+      {
+        id: "flow-plan", name: "Flow Plan", description: "", category: "web",
+        status: "ok", containers: { total: 2, running: 2 }, endpoints: [],
+        cpu_percent: null, memory_mb: null, last_deployed_at: null,
+      },
+    ]);
+
+    render(<Containers />);
+    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "Flow Plan 그룹 접기" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
+    // 헤더 요약은 그대로 보인다
+    expect(within(toggle.closest("tr")!).getByText("2/2 실행 중")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Flow Plan 그룹 펼치기" }));
+    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
+  });
+
+  it("모두 접기/펼치기 버튼으로 전체 그룹을 제어한다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({ id: "c1", name: "flow-plan-ui", component_name: "ui" }),
+      item({
+        id: "c3", name: "stray-web", service_id: null, component_name: null,
+        management_state: "unmanaged",
+      }),
+    ]);
+    vi.mocked(fetchServices).mockResolvedValue([
+      {
+        id: "flow-plan", name: "Flow Plan", description: "", category: "web",
+        status: "ok", containers: { total: 1, running: 1 }, endpoints: [],
+        cpu_percent: null, memory_mb: null, last_deployed_at: null,
+      },
+    ]);
+
+    render(<Containers />);
+    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "모두 접기" }));
+    expect(screen.queryByText("flow-plan-ui")).not.toBeInTheDocument();
+    expect(screen.queryByText("stray-web")).not.toBeInTheDocument();
+    expect(screen.getByText("서비스 미지정")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "모두 펼치기" }));
+    expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
     expect(screen.getByText("stray-web")).toBeInTheDocument();
   });
 

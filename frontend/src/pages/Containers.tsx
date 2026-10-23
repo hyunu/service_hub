@@ -1,6 +1,17 @@
 import * as React from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Boxes, HardDrive, Link2, Play, RefreshCw, ScrollText, Square, Trash2, X } from "lucide-react";
+import {
+  Boxes,
+  ChevronDown,
+  HardDrive,
+  Link2,
+  Play,
+  RefreshCw,
+  ScrollText,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   attachOrphan,
   attachOrphans,
@@ -700,6 +711,21 @@ export default function Containers() {
 
   const hasGroupedServices = groups.some((g) => g.serviceId !== null);
 
+  // 그룹 접기/펼치기 — 그룹 키 기준으로 기억한다.
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(new Set());
+  const toggleGroup = React.useCallback((key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const allCollapsed =
+    groups.length > 0 && groups.every((g) => collapsedGroups.has(g.key));
+  const toggleAllGroups = () =>
+    setCollapsedGroups(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)));
+
   const attachSelected = async () => {
     if (!bulkService) {
       setBulkMsg({ ok: false, text: "연결할 서비스를 선택하세요." });
@@ -780,6 +806,15 @@ export default function Containers() {
             className="px-2 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           >
             필터 해제
+          </button>
+        ) : null}
+        {hasGroupedServices ? (
+          <button
+            type="button"
+            onClick={toggleAllGroups}
+            className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {allCollapsed ? "모두 펼치기" : "모두 접기"}
           </button>
         ) : null}
         <span className="ml-auto text-xs text-muted-foreground">{items.length}개</span>
@@ -886,10 +921,21 @@ export default function Containers() {
                           className={`border-l-4 ${g.accent.border} ${g.accent.tint} py-2`}
                         >
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleGroup(g.key)}
+                              aria-expanded={!collapsedGroups.has(g.key)}
+                              aria-label={`${g.name} 그룹 ${collapsedGroups.has(g.key) ? "펼치기" : "접기"}`}
+                              className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-background/70"
+                            >
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+                                  collapsedGroups.has(g.key) ? "-rotate-90" : ""
+                                }`}
+                              />
                               <Boxes className={`h-4 w-4 ${g.accent.icon}`} />
                               <span className="text-sm font-semibold">{g.name}</span>
-                            </span>
+                            </button>
                             {g.serviceId ? (
                               <code className="rounded bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                                 {g.serviceId}
@@ -928,7 +974,7 @@ export default function Containers() {
                       </TableRow>
                     </>
                   ) : null}
-                  {g.items.map((c) => (
+                  {(collapsedGroups.has(g.key) ? [] : g.items).map((c) => (
                     <TableRow
                       key={c.id}
                       className={`cursor-pointer ${
