@@ -328,8 +328,16 @@ class DockerGateway:
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=timeout, check=False)
+            stderr = proc.stderr[-2000:]
+            if proc.returncode != 0 and "is already in use by container" in stderr:
+                # compose 서비스명을 바꾸면서 container_name 을 고정한 경우 흔히 발생한다.
+                stderr += (
+                    "\n\n힌트: 같은 이름의 컨테이너가 다른 compose 프로젝트/서비스에 남아 있습니다. "
+                    "`docker ps -a --filter name=<이름>` 으로 확인한 뒤 해당 컨테이너를 제거하거나, "
+                    "compose 에서 container_name 고정을 제거하세요."
+                )
             return {"ok": proc.returncode == 0,
-                    "stdout": proc.stdout[-2000:], "stderr": proc.stderr[-2000:]}
+                    "stdout": proc.stdout[-2000:], "stderr": stderr}
         except subprocess.TimeoutExpired:
             return {"ok": False, "stderr": "timeout"}
         except Exception as exc:

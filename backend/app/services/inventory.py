@@ -36,8 +36,13 @@ def match_component(components: list[ServiceComponent],
                     snap: ContainerSnapshot) -> ServiceComponent | None:
     """컨테이너 스냅샷에 대응하는 컴포넌트를 찾는다.
 
-    우선순위: compose 서비스명 → 컨테이너 이름 → 이름-하위문자열(정확히 1개인 경우만).
+    우선순위: compose 서비스명 **정확히 일치** → 컨테이너 이름 **정확히 일치**.
     모호하면(None 반환) unmanaged로 분류해 잘못된 연결을 방지한다.
+
+    과거에는 이름 하위문자열 매칭을 허용했는데, 컴포넌트 이름이 일반적일 때
+    (`web`, `api`, `db` …) 다른 서비스의 컨테이너를 잘못 가져가는 문제가 있었다
+    (예: `trade-console-web` → pianosync의 `web` 컴포넌트).
+    compose 로 배포된 컨테이너는 항상 compose 라벨이 있으므로 정확 매칭으로 충분하다.
     """
     cs = _norm(snap.compose_service)
     if cs:
@@ -48,8 +53,7 @@ def match_component(components: list[ServiceComponent],
     for comp in components:
         if _norm(comp.name) == name:
             return comp
-    partial = [c for c in components if _norm(c.name) in name or name in _norm(c.name)]
-    return partial[0] if len(partial) == 1 else None
+    return None
 
 
 def sync_inventory(db: Session, gateway: DockerGateway) -> dict:
@@ -117,7 +121,11 @@ def sync_inventory(db: Session, gateway: DockerGateway) -> dict:
 
         component = None
         service = None
-        for svc in services:
+        # 같은 컴포넌트 이름(web/api 등)이 여러 서비스에 있어도 프로젝트가 일치하면
+        # 그 서비스를 우선한다. (compose 프로젝트명 == 서비스 ID 규칙)
+        project = _norm(snap.compose_project)
+        ordered = sorted(services, key=lambda svc: _norm(svc.id) != project)
+        for svc in ordered:
             comp = match_component(comp_map.get(svc.id, []), snap)
             if comp is not None:
                 service, component = svc, comp
