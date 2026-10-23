@@ -232,47 +232,61 @@ function DetailDrawer({
                   컨테이너 작업
                 </h3>
                 <div className="rounded-md border border-border px-3 py-2.5">
-                  <div className="flex flex-wrap gap-2">
-                    {detail.state === "running" ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void runAction("stop")}
-                        disabled={!actionsEnabled || busy}
-                        title={actionsEnabled ? "정지" : "HUB_ENABLE_DOCKER_ACTIONS=false"}
-                      >
-                        <Square className="h-3.5 w-3.5" />
-                        정지
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void runAction("start")}
-                        disabled={!actionsEnabled || busy}
-                        title={actionsEnabled ? "시작" : "HUB_ENABLE_DOCKER_ACTIONS=false"}
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        시작
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void removeCurrent()}
-                      disabled={!actionsEnabled || busy || detail.state === "running"}
-                      title={
-                        detail.state === "running"
-                          ? "실행 중에는 제거할 수 없습니다. 먼저 정지하세요."
-                          : actionsEnabled
-                            ? "제거"
-                            : "HUB_ENABLE_DOCKER_ACTIONS=false"
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      제거
-                    </Button>
-                  </div>
+                  {/* 보호 대상(허브 자신/보호 목록)은 서버가 actions_allowed=false 로 알려준다. */}
+                  {(() => {
+                    const canAct = detail.actions_allowed ?? actionsEnabled;
+                    const blockedTitle = canAct
+                      ? undefined
+                      : detail.protected_reason ?? "HUB_ENABLE_DOCKER_ACTIONS=false";
+                    return (
+                      <>
+                        <div className="flex flex-wrap gap-2">
+                          {detail.state === "running" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void runAction("stop")}
+                              disabled={!canAct || busy}
+                              title={blockedTitle ?? "정지"}
+                            >
+                              <Square className="h-3.5 w-3.5" />
+                              정지
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void runAction("start")}
+                              disabled={!canAct || busy}
+                              title={blockedTitle ?? "시작"}
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                              시작
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void removeCurrent()}
+                            disabled={!canAct || busy || detail.state === "running"}
+                            title={
+                              detail.state === "running" && canAct
+                                ? "실행 중에는 제거할 수 없습니다. 먼저 정지하세요."
+                                : blockedTitle ?? "제거"
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                            제거
+                          </Button>
+                        </div>
+                        {detail.protected_reason ? (
+                          <p className="mt-2 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                            {detail.protected_reason}
+                          </p>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {actionMsg ? (
                     <p className="mt-2 text-xs" role="alert">{actionMsg}</p>
                   ) : null}

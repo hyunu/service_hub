@@ -310,6 +310,10 @@ export interface ContainerListItem {
   memory_mb?: number | null;
   /** 수동 그룹핑(container_assignments)으로 연결되었는가 */
   manual?: boolean;
+  /** 조작 금지 사유 (허브 자신/보호 대상) — null이면 보호되지 않음 */
+  protected_reason?: string | null;
+  /** 시작/정지/제거 가능 여부 (게이트 열림 + 보호 대상 아님) */
+  actions_allowed?: boolean;
 }
 
 export interface ContainerMount {

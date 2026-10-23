@@ -20,12 +20,9 @@ from ..models import Container, ContainerAssignment
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit
 from ..services.grouping import resolve_container
+from ..services.protection import HUB_IMAGE_PREFIX, protection_reason
 
 router = APIRouter(tags=["docker-actions"], dependencies=[Depends(require_auth)])
-
-HUB_SELF_PROJECT = "service-hub"
-HUB_IMAGE_PREFIX = "n100-service-hub-"
-
 
 class RemoveRequest(BaseModel):
     confirm: str = Field(min_length=1, max_length=256)
@@ -40,26 +37,6 @@ def _require_enabled():
                    "(HUB_ENABLE_DOCKER_ACTIONS=false)",
             code="docker_actions_disabled")
     return settings
-
-
-def _patterns(value: str) -> list[str]:
-    return [p.strip().lower() for p in (value or "").split(",") if p.strip()]
-
-
-def _protection_reason(row: Container, settings) -> str | None:
-    labels = row.labels or {}
-    if row.component_name == "hub-self" or str(labels.get("com.hub.self")).lower() == "true" \
-            or (row.compose_project or "") == HUB_SELF_PROJECT:
-        return "허브 자신의 컨테이너는 조작할 수 없습니다"
-    name = (row.name or "").lower()
-    for pat in _patterns(settings.protected_containers):
-        if name == pat or name.startswith(pat):
-            return f"보호된 컨테이너입니다 (HUB_PROTECTED_CONTAINERS: {pat})"
-    project = (row.compose_project or "").lower()
-    for pat in _patterns(settings.protected_projects):
-        if project == pat:
-            return f"보호된 compose 프로젝트입니다 (HUB_PROTECTED_PROJECTS: {pat})"
-    return None
 
 
 def _target(db: Session, container_id: str) -> Container:
@@ -82,7 +59,7 @@ def _live_state(container_id: str) -> str | None:
 def _guard(db: Session, container_id: str) -> tuple:
     settings = _require_enabled()
     row = _target(db, container_id)
-    reason = _protection_reason(row, settings)
+    reason = protection_reason(row, settings)
     if reason:
         raise HubError(status_code=403, detail=reason, code="protected_container")
     return settings, row

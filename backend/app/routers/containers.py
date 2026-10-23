@@ -154,6 +154,12 @@ def review_orphan(container_id: str, body: ReviewRequest, db: Session = Depends(
 
 
 def _dict(row: Container, detail: bool = False, manual: bool = False) -> dict:
+    # 조작 가능 여부/사유를 함께 내려 UI가 버튼을 미리 비활성화할 수 있게 한다.
+    from ..config import get_settings
+    from ..services.protection import protection_reason
+
+    settings = get_settings()
+    reason = protection_reason(row, settings)
     base = {
         "container_id": row.container_id,
         "container_id_short": row.container_id[:12],
@@ -164,6 +170,8 @@ def _dict(row: Container, detail: bool = False, manual: bool = False) -> dict:
         "compose_project": row.compose_project, "compose_service": row.compose_service,
         "ports": row.ports, "health": row.health, "restart_count": row.restart_count,
         "observed_at": row.observed_at,
+        "protected_reason": reason,
+        "actions_allowed": bool(settings.enable_docker_actions) and reason is None,
     }
     if detail:
         from ..dependencies import get_gateway

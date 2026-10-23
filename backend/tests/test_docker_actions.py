@@ -195,3 +195,66 @@ def test_actions_require_csrf(app_factory, settings):
         assert r.json()["code"] == "csrf"
     finally:
         client.__exit__(None, None, None)
+
+
+# ---------------------------------------------------- 보호 정보 노출 (UI용) --
+
+def test_container_detail_reports_protection_reason(app_factory, settings):
+    """허브 자신의 컨테이너는 상세 응답에서 actions_allowed=false + 사유를 준다.
+
+    UI는 이 값으로 버튼을 미리 비활성화한다 (클릭 후 403을 보지 않도록).
+    """
+    client = _client(app_factory, settings)
+    try:
+        _gw(client).containers = [make_fake_container(
+            "hub1", "hub-backend", project="service-hub", service="backend")]
+        _sync(client)
+        d = client.get("/api/v1/containers/hub1").json()
+        assert d["protected_reason"] == "허브 자신의 컨테이너는 조작할 수 없습니다"
+        assert d["actions_allowed"] is False
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_container_detail_allows_normal_container_when_gate_open(app_factory, settings):
+    client = _client(app_factory, settings)
+    try:
+        _gw(client).containers = [make_fake_container("c9", "my-app", project="mine")]
+        _sync(client)
+        d = client.get("/api/v1/containers/c9").json()
+        assert d["protected_reason"] is None
+        assert d["actions_allowed"] is True
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_container_detail_disallows_when_gate_closed(client):
+    """게이트가 잠겨 있으면 보호 대상이 아니어도 조작 불가로 표시된다."""
+    gateway = client.app.state.monitor.gateway
+    gateway.containers = [make_fake_container("c10", "plain-app", project="mine")]
+    client.app.state.monitor.run_once()
+    d = client.get("/api/v1/containers/c10").json()
+    assert d["protected_reason"] is None
+    assert d["actions_allowed"] is False
+
+
+def test_protected_container_actions_are_blocked(app_factory, settings):
+    """보호 목록(이름 접두사/프로젝트)도 조작이 거부된다."""
+    client = _client(app_factory, settings, protected_containers="assetnest",
+                     protected_projects="infra")
+    try:
+        _gw(client).containers = [
+            make_fake_container("a1", "assetnest-mongo", project="infra", running=False),
+            make_fake_container("h1", "hub-frontend", project="service-hub", running=False),
+        ]
+        _sync(client)
+        r1 = mutate(client, "POST", "/api/v1/containers/a1/start")
+        assert r1.status_code == 403
+        assert r1.json()["code"] == "protected_container"
+        r2 = mutate(client, "POST", "/api/v1/containers/h1/start")
+        assert r2.status_code == 403
+        d = client.get("/api/v1/containers/a1").json()
+        assert "HUB_PROTECTED_CONTAINERS" in (d["protected_reason"] or "")
+        assert d["actions_allowed"] is False
+    finally:
+        client.__exit__(None, None, None)
