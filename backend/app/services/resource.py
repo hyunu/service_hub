@@ -63,8 +63,10 @@ def human_uptime(seconds: float) -> str:
 
 
 def collect_host() -> HostMetrics:
-    cpu_percent = psutil.cpu_percent(interval=0.1)
+    # 한 번의 샘플링으로 전체/코어별 값을 모두 얻는다 (0.1초 블로킹 1회).
+    # 전체 사용률은 코어별 평균과 동일한 정의다.
     per_core = psutil.cpu_percent(interval=0.1, percpu=True)
+    cpu_percent = round(sum(per_core) / len(per_core), 1) if per_core else 0.0
     vm = psutil.virtual_memory()
     swap = psutil.swap_memory()
     boot = psutil.boot_time()
