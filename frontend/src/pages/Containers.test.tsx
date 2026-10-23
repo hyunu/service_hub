@@ -115,16 +115,13 @@ describe("Containers 목록 — 서비스 그룹화", () => {
 
     render(<Containers />);
 
-    // 서비스 그룹 헤더 + 링크
+    // 서비스 그룹 헤더 — 이름/실행 상태만 (ID·개수·상세 링크는 노출하지 않음)
     expect(await screen.findByText("Flow Plan")).toBeInTheDocument();
     const groupRow = screen.getByText("Flow Plan").closest("tr")!;
-    expect(within(groupRow).getByText("flow-plan")).toBeInTheDocument();
     expect(within(groupRow).getByText("2/2 실행 중")).toBeInTheDocument();
-    expect(within(groupRow).getByText("2개")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /서비스 상세/ })).toHaveAttribute(
-      "href",
-      "/services/flow-plan",
-    );
+    expect(within(groupRow).queryByText("flow-plan")).not.toBeInTheDocument();
+    expect(within(groupRow).queryByText("2개")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /서비스 상세/ })).not.toBeInTheDocument();
 
     // 미연결 컨테이너는 별도 그룹
     expect(screen.getByText("서비스 미지정")).toBeInTheDocument();

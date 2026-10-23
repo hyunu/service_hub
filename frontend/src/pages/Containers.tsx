@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Boxes,
   ChevronDown,
@@ -712,6 +712,8 @@ export default function Containers() {
         serviceId: sid as string | null,
         name: nameOf(sid),
         accent: accentFor(sid),
+        // 이름이 ID의 슬러그와 같으면 ID를 중복 표시하지 않는다.
+        showId: nameOf(sid).trim().toLowerCase().replace(/\s+/g, "-") !== sid,
         running: cs.filter((c) => c.state === "running").length,
         items: [...cs].sort((x, y) =>
           (x.component_name ?? x.name).localeCompare(y.component_name ?? y.name, "ko"),
@@ -723,6 +725,7 @@ export default function Containers() {
         serviceId: null,
         name: "서비스 미지정",
         accent: accentFor(null),
+        showId: false,
         running: ungrouped.filter((c) => c.state === "running").length,
         items: [...ungrouped].sort((a, b) => a.name.localeCompare(b.name, "ko")),
       });
@@ -941,7 +944,7 @@ export default function Containers() {
                           colSpan={8}
                           className={`border-l-4 ${g.accent.border} ${g.accent.tint} py-2`}
                         >
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => toggleGroup(g.key)}
@@ -957,12 +960,15 @@ export default function Containers() {
                               <Boxes className={`h-4 w-4 ${g.accent.icon}`} />
                               <span className="text-sm font-semibold">{g.name}</span>
                             </button>
-                            {g.serviceId ? (
-                              <code className="rounded bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-                                {g.serviceId}
-                              </code>
+                            {g.serviceId && g.showId ? (
+                              <span className="font-mono text-[11px] text-muted-foreground">
+                                · {g.serviceId}
+                              </span>
                             ) : null}
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-2 py-0.5">
+                            <span
+                              className="ml-auto inline-flex items-center gap-1.5"
+                              title={`실행 중 ${g.running} / 전체 ${g.items.length}`}
+                            >
                               <span
                                 className={`h-1.5 w-1.5 rounded-full ${
                                   g.items.length > 0 && g.running === g.items.length
@@ -970,25 +976,9 @@ export default function Containers() {
                                     : "bg-amber-500"
                                 }`}
                               />
-                              <span className="text-[11px] font-medium tabular-nums">
+                              <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
                                 {g.running}/{g.items.length} 실행 중
                               </span>
-                            </span>
-                            {g.serviceId ? (
-                              <Link
-                                to={`/services/${encodeURIComponent(g.serviceId)}`}
-                                className="text-[11px] font-medium text-primary hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                서비스 상세 →
-                              </Link>
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground">
-                                서비스에 연결되지 않은 컨테이너
-                              </span>
-                            )}
-                            <span className="ml-auto rounded-full bg-background/70 px-2 py-0.5 text-[11px] font-medium tabular-nums">
-                              {g.items.length}개
                             </span>
                           </div>
                         </TableCell>
