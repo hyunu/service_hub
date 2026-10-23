@@ -123,7 +123,10 @@ def _collect_plan_context(db: Session, spec):
     conflicting: set[int] = set()
     for item in build_registry(db):
         # 실제 점유된 포트와, 다른 서비스가 예약한 포트 모두 충돌로 본다.
+        # 단, **같은 서비스**가 이미 쓰고 있는 포트는 재배포 시 충돌이 아니다.
         if item.get("host_port") and (item.get("in_use") or item.get("reserved")):
+            if item.get("service_id") == spec.service.id:
+                continue
             conflicting.add(item["host_port"])
 
     gateway = get_gateway()

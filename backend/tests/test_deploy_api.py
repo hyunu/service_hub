@@ -108,3 +108,49 @@ def test_apply_plan_not_ready_409(app_factory, tmp_path):
         assert r.json()["code"] == "plan_not_ready"
     finally:
         client.__exit__(None, None, None)
+
+
+def test_plan_ignores_own_service_port(client):
+    """재배포 시 자기 서비스가 이미 점유한 포트는 충돌로 보지 않는다."""
+    from app.db import get_session_factory
+    from app.models import Container, Service
+
+    with get_session_factory()() as s:
+        s.add(Service(id="sample-app", name="Sample", description="d", category="web"))
+        s.flush()
+        s.add(Container(
+            container_id="c1", name="sample-app-app", state="running",
+            management_state="managed", service_id="sample-app",
+            ports=[{"host_port": 8765, "container_port": 8765,
+                    "proto": "tcp", "bind_addr": "100.85.245.79"}]))
+        s.commit()
+
+    spec = {**SPEC_BODY, "endpoints": [
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 8765,
+         "container": "app", "container_port": 8765}]}
+    r = mutate(client, "POST", "/api/v1/deployments/plan", json=spec)
+    assert r.status_code == 200, r.text
+    assert r.json()["result"] == "READY", r.json()["impact"]
+
+
+def test_plan_blocks_other_service_port(client):
+    """다른 서비스가 쓰는 포트는 여전히 충돌이다."""
+    from app.db import get_session_factory
+    from app.models import Container, Service
+
+    with get_session_factory()() as s:
+        s.add(Service(id="other-svc", name="Other", description="d", category="web"))
+        s.flush()
+        s.add(Container(
+            container_id="c2", name="other-app", state="running",
+            management_state="managed", service_id="other-svc",
+            ports=[{"host_port": 8765, "container_port": 80,
+                    "proto": "tcp", "bind_addr": "100.85.245.79"}]))
+        s.commit()
+
+    spec = {**SPEC_BODY, "endpoints": [
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 8765,
+         "container": "app", "container_port": 8765}]}
+    r = mutate(client, "POST", "/api/v1/deployments/plan", json=spec)
+    assert r.status_code == 200
+    assert r.json()["result"] == "BLOCKED"
