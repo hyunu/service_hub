@@ -304,9 +304,14 @@ class DockerGateway:
 
     def compose_up(self, project_dir: str, project_name: str,
                    timeout: int = 600) -> dict:
-        """Compose 프로젝트 배포. 임의 셸/커맨드 파라미터는 받지 않는다."""
+        """Compose 프로젝트 배포. 임의 셸/커맨드 파라미터는 받지 않는다.
+
+        ``--build`` 를 포함한다 — 코드가 바뀐 경우 이미지를 다시 빌드해야
+        변경이 반영된다(레이어 캐시로 변경 없는 단계는 빠르다).
+        ``build:`` 가 없는 이미지 전용 서비스에는 영향이 없다.
+        """
         self._require_mutation()
-        return self._compose(["up", "-d", "--remove-orphans"], project_dir,
+        return self._compose(["up", "-d", "--remove-orphans", "--build"], project_dir,
                              project_name, timeout)
 
     def compose_down(self, project_dir: str, project_name: str,

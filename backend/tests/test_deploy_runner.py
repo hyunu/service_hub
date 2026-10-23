@@ -120,3 +120,23 @@ def test_duplicate_deploy_rejected(settings, tmp_path):
     runner.acquire(spec.service.id)
     with pytest.raises(DeploymentBusy):
         runner.acquire(spec.service.id)
+
+
+def test_compose_up_forces_build(monkeypatch):
+    """코드 변경이 반영되도록 compose up 은 --build 를 포함해야 한다."""
+    from app import docker_client
+
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **kw: (calls.append(cmd), _Proc())[1],
+    )
+    gw = docker_client.DockerGateway(allow_mutations=True)
+    gw.compose_up("/tmp/proj", "proj")
+    assert calls and "--build" in calls[0]
