@@ -146,3 +146,25 @@ def test_rollback_confirmed(fake):
     out = srv.hub_deploy_rollback("dep-1", confirmed=True)
     assert out["ok"] is True
     assert fake.created[0]["path"] == "/deployments/dep-1/rollback"
+
+
+def test_deployment_guide_tool():
+    """접속한 AI가 배포 모델을 스스로 파악할 수 있어야 한다."""
+    out = srv.hub_deployment_guide()
+    assert out["model"]["build_context"].startswith("/srv/services/")
+    assert "rsync" in out["model"]["source_sync"]
+    assert any("hub_deploy_apply" in step for step in out["workflow"])
+    assert "시크릿" in out["markdown"]
+    assert "deploy_disabled" in out["error_codes"]
+
+
+def test_deployment_guide_resource_and_prompt_are_exposed():
+    resources = asyncio.run(srv.server.list_resources())
+    assert any(r.uri == "hub://guides/deployment" for r in resources)
+    prompts = asyncio.run(srv.server.list_prompts())
+    assert any(p.name == "deploy_service" for p in prompts)
+
+
+def test_deployment_guide_is_in_tool_list():
+    tools = asyncio.run(srv.server.list_tools())
+    assert any(t.name == "hub_deployment_guide" for t in tools)

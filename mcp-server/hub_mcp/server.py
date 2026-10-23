@@ -22,18 +22,22 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from .client import HubApiError, HubClient, normalize_base
+from .guide import DEPLOYMENT_GUIDE, deployment_guide
 
 server = MCPServer(
     "n100-service-hub",
     version="0.1.0",
     instructions=(
-        "N100 Service Hub 관리 도구. 배포 워크플로: "
-        "1) hub_service_spec_guide 로 service.yaml 형식을 확인하고, "
-        "2) hub_service_scaffold 로 /srv/services/<id>/{service.yaml,compose.yaml} 를 생성한 뒤, "
-        "3) hub_service_validate 로 검증하고 hub_service_register 로 DB에 등록한다. "
-        "4) hub_deploy_plan 으로 READY 를 확인한 뒤 hub_deploy_apply(service_id, confirmed=true) 로 배포한다. "
-        "5) hub_deploy_status / hub_deployments_list 로 결과를 확인하고 필요하면 hub_deploy_rollback. "
-        "HUB_ENABLE_DEPLOY=false 이면 scaffold/plan/apply 가 거부된다."
+        "N100 Service Hub 관리 도구. "
+        "**배포 모델**: 허브는 서버의 /srv/services/<service-id> 를 빌드한다. "
+        "MCP는 소스 업로드 도구가 아니므로, 소스는 먼저 SSH rsync 또는 서버 git pull 로 "
+        "동기화해야 한다. 배포/재배포 전에 **hub_deployment_guide** 를 먼저 호출해 "
+        "모델·사전조건·절차·시크릿·오류를 확인하라. "
+        "워크플로: hub_service_spec_guide → (소스 동기화) → hub_service_scaffold → "
+        "hub_service_validate → hub_service_register → hub_deploy_plan(READY) → "
+        "hub_deploy_apply(service_id, confirmed=true) → hub_deploy_status. "
+        "롤백은 hub_deploy_rollback(deployment_id, confirmed=true). "
+        "HUB_ENABLE_DEPLOY=false 이면 scaffold/plan/apply 는 503 으로 거부된다."
     ),
 )
 
@@ -49,6 +53,35 @@ def _run(fn, *args, **kwargs) -> dict:
         return {"ok": True, "data": data}
     except HubApiError as exc:
         return {"ok": False, "error": str(exc), "code": exc.code, "status": exc.status}
+
+
+# ------------------------------------------------------------ 배포 가이드 --
+
+@server.tool()
+def hub_deployment_guide() -> dict:
+    """N100 허브의 **배포 방식**을 반환한다 (모델·사전조건·절차·시크릿·오류·안전).
+
+    배포/재배포를 시작하기 전에 반드시 먼저 호출한다. 특히:
+    - 허브는 서버의 /srv/services/<id> 를 빌드하며 MCP는 소스 업로드를 하지 않는다.
+    - 소스는 SSH rsync 또는 서버 git pull 로 먼저 동기화해야 한다.
+    - 시크릿은 .env(600/660)에 두고 service.yaml에는 이름만 넣는다.
+    """
+    return deployment_guide()
+
+
+@server.resource("hub://guides/deployment", mime_type="text/markdown",
+                 description="N100 Service Hub 배포 가이드 (Markdown)")
+def deployment_guide_resource() -> str:
+    """MCP 리소스로도 같은 배포 가이드를 제공한다."""
+    return DEPLOYMENT_GUIDE
+
+
+@server.prompt(description="N100 Service Hub 배포 절차를 안내한다")
+def deploy_service(service_id: str = "<service-id>") -> str:
+    """배포 절차 프롬프트 — 대화에 가이드를 주입한다."""
+    return (f"'{service_id}' 서비스를 N100 Service Hub에 배포하세요.\n"
+            f"아래 가이드의 모델·사전조건·절차를 반드시 따르세요.\n\n"
+            f"{DEPLOYMENT_GUIDE}")
 
 
 # ------------------------------------------------------------------ 읽기 --

@@ -148,3 +148,21 @@ claude mcp add --transport http n100-service-hub http://100.85.245.79:8422/mcp
 | `409 already_exists` | 이미 서비스 디렉터리 존재 → `overwrite+confirm` |
 | `403/409 scaffold` | `/srv/services` 소유권(10001) |
 | 도구가 안 보임 | 클라이언트 재시작, 엔드포인트 `/mcp` 경로, tailnet 연결 |
+
+## 7. AI가 배포 방식을 스스로 파악하는 장치
+
+MCP에 접속한 개발 AI가 별도 설명 없이 배포 모델을 이해하도록 세 가지를 제공합니다.
+
+| 종류 | 이름 | 내용 |
+|---|---|---|
+| 도구 | `hub_deployment_guide` | 배포 모델·사전조건·절차·시크릿·오류·안전 (구조화 + Markdown) |
+| 리소스 | `hub://guides/deployment` | 같은 가이드 (text/markdown) |
+| 프롬프트 | `deploy_service(service_id)` | 대화에 배포 절차를 주입 |
+
+서버 `instructions`에도 핵심 모델이 요약되어 있습니다:
+> 허브는 **서버의 `/srv/services/<id>`를 빌드**하며, MCP는 소스 업로드를 하지 않는다.
+> 소스는 SSH rsync 또는 서버 `git pull`로 먼저 동기화하고, 배포 전에
+> `hub_deployment_guide`를 호출하라.
+
+권장: AI는 배포/재배포를 시작할 때 **가장 먼저 `hub_deployment_guide`를 호출**하고,
+그 절차(소스 동기화 → scaffold → validate → register → plan → apply)를 따른다.

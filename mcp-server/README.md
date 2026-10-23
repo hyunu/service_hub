@@ -123,3 +123,13 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
 전체 사용법(도구 17개, 배포 워크플로, 클라이언트 설정)은 `docs/MCP.md`를 참고하세요.
+
+## 8. 배포 방식 자문 (AI용)
+
+접속한 AI가 배포 방식을 스스로 알 수 있도록 제공한다.
+- 도구 `hub_deployment_guide` — 모델·사전조건·절차·시크릿·오류·안전
+- 리소스 `hub://guides/deployment` — 동일 가이드(Markdown)
+- 프롬프트 `deploy_service` — 대화에 절차 주입
+
+핵심: 허브는 서버의 `/srv/services/<id>`를 빌드하며, MCP는 소스 업로드를 하지 않는다.
+소스는 먼저 SSH rsync / git pull로 동기화한다.
