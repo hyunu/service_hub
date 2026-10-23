@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import Containers from "./Containers";
-import type { ContainerDetail } from "../lib/api";
+import type { ContainerDetail, ContainerListItem } from "../lib/api";
 
 const focusRef = { value: "hub1" };
 
@@ -12,7 +12,9 @@ vi.mock("react-router-dom", () => ({
     vi.fn(),
   ],
   useParams: () => ({}),
-  Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+  Link: ({ children, to }: { children: React.ReactNode; to?: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 
 vi.mock("../lib/api", async () => {
@@ -27,7 +29,7 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-import { fetchContainer, fetchImages, fetchServices } from "../lib/api";
+import { fetchContainer, fetchContainers, fetchImages, fetchServices } from "../lib/api";
 
 function detail(overrides: Partial<ContainerDetail> = {}): ContainerDetail {
   return {
@@ -56,6 +58,85 @@ function detail(overrides: Partial<ContainerDetail> = {}): ContainerDetail {
     ...overrides,
   };
 }
+
+function item(overrides: Partial<ContainerListItem> = {}): ContainerListItem {
+  return {
+    id: "c1",
+    name: "flow-plan-ui",
+    image: "flow-plan-ui:latest",
+    state: "running",
+    status: "Up 1 hour",
+    management_state: "managed",
+    service_id: "flow-plan",
+    component_name: "ui",
+    compose_project: "flow-plan",
+    compose_service: "ui",
+    ports: [],
+    networks: [],
+    started_at: null,
+    created_at: null,
+    restart_count: 0,
+    health: null,
+    observed_at: null,
+    ...overrides,
+  };
+}
+
+describe("Containers 목록 — 서비스 그룹화", () => {
+  beforeEach(() => {
+    focusRef.value = "";
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("서비스에 묶인 컨테이너는 서비스 단위로 묶여 표시된다", async () => {
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({ id: "c1", name: "flow-plan-ui", component_name: "ui" }),
+      item({ id: "c2", name: "flow-plan-backend", component_name: "backend" }),
+      item({
+        id: "c3", name: "stray-web", service_id: null, component_name: null,
+        management_state: "unmanaged", compose_project: null, compose_service: null,
+      }),
+    ]);
+    vi.mocked(fetchServices).mockResolvedValue([
+      {
+        id: "flow-plan", name: "Flow Plan", description: "", category: "web",
+        status: "ok", containers: { total: 2, running: 2 }, endpoints: [],
+        cpu_percent: null, memory_mb: null, last_deployed_at: null,
+      },
+    ]);
+
+    render(<Containers />);
+
+    // 서비스 그룹 헤더 + 링크
+    expect(await screen.findByText("Flow Plan")).toBeInTheDocument();
+    const groupRow = screen.getByText("Flow Plan").closest("tr")!;
+    expect(within(groupRow).getByText("flow-plan")).toBeInTheDocument();
+    expect(within(groupRow).getByText("2/2 실행 중")).toBeInTheDocument();
+    expect(within(groupRow).getByText("2개")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "서비스 상세" })).toHaveAttribute(
+      "href",
+      "/services/flow-plan",
+    );
+
+    // 미연결 컨테이너는 별도 그룹
+    expect(screen.getByText("서비스 미지정")).toBeInTheDocument();
+    expect(screen.getByText("stray-web")).toBeInTheDocument();
+  });
+
+  it("연결된 서비스가 없으면 그룹 헤더 없이 평면 목록으로 보인다", async () => {
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({
+        id: "c9", name: "stray", service_id: null, component_name: null,
+        management_state: "unmanaged",
+      }),
+    ]);
+    vi.mocked(fetchServices).mockResolvedValue([]);
+
+    render(<Containers />);
+    expect(await screen.findByText("stray")).toBeInTheDocument();
+    expect(screen.queryByText("서비스 미지정")).not.toBeInTheDocument();
+  });
+});
 
 describe("Containers 상세 — 조작 버튼 보호", () => {
   beforeEach(() => {

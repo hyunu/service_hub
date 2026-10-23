@@ -1,6 +1,6 @@
 import * as React from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { HardDrive, Link2, Play, RefreshCw, ScrollText, Square, Trash2, X } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Boxes, HardDrive, Link2, Play, RefreshCw, ScrollText, Square, Trash2, X } from "lucide-react";
 import {
   attachOrphan,
   attachOrphans,
@@ -635,6 +635,46 @@ export default function Containers() {
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(selectableIds));
 
+  // 서비스에 연결된 컨테이너를 서비스 단위로 묶어서 표시한다.
+  // 연결되지 않은 컨테이너(미관리/미연결)는 마지막 그룹으로 모은다.
+  const groups = React.useMemo(() => {
+    const byService = new Map<string, ContainerListItem[]>();
+    const ungrouped: ContainerListItem[] = [];
+    for (const c of items) {
+      if (c.service_id) {
+        const arr = byService.get(c.service_id) ?? [];
+        arr.push(c);
+        byService.set(c.service_id, arr);
+      } else {
+        ungrouped.push(c);
+      }
+    }
+    const nameOf = (id: string) => services.find((s) => s.id === id)?.name ?? id;
+    const out = [...byService.entries()]
+      .sort((a, b) => nameOf(a[0]).localeCompare(nameOf(b[0]), "ko"))
+      .map(([sid, cs]) => ({
+        key: `svc:${sid}`,
+        serviceId: sid as string | null,
+        name: nameOf(sid),
+        running: cs.filter((c) => c.state === "running").length,
+        items: [...cs].sort((x, y) =>
+          (x.component_name ?? x.name).localeCompare(y.component_name ?? y.name, "ko"),
+        ),
+      }));
+    if (ungrouped.length > 0) {
+      out.push({
+        key: "ungrouped",
+        serviceId: null,
+        name: "서비스 미지정",
+        running: ungrouped.filter((c) => c.state === "running").length,
+        items: [...ungrouped].sort((a, b) => a.name.localeCompare(b.name, "ko")),
+      });
+    }
+    return out;
+  }, [items, services]);
+
+  const hasGroupedServices = groups.some((g) => g.serviceId !== null);
+
   const attachSelected = async () => {
     if (!bulkService) {
       setBulkMsg({ ok: false, text: "연결할 서비스를 선택하세요." });
@@ -806,69 +846,113 @@ export default function Containers() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((c) => (
-                <TableRow
-                  key={c.id}
-                  className="cursor-pointer"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${c.name} 상세 보기`}
-                  onClick={() => setFocus(c.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") setFocus(c.id);
-                  }}
-                >
-                  <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      aria-label={`${c.name} 선택`}
-                      checked={selected.has(c.id)}
-                      onChange={() => toggleSelect(c.id)}
-                      disabled={!canSelect(c)}
-                      title={canSelect(c) ? "선택해서 서비스로 그룹핑" : "이미 서비스에 연결됨"}
-                      className="h-3.5 w-3.5 cursor-pointer accent-current disabled:cursor-not-allowed"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium leading-tight">{c.name}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{c.id.slice(0, 12)}</div>
-                  </TableCell>
-                  <TableCell className="max-w-52">
-                    <div className="truncate font-mono text-xs">{c.image}</div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1.5 text-xs">
-                      <StatusDot level={stateLevel(c.state)} />
-                      {containerStateLabel(c.state)}
-                      {c.health ? ` · ${c.health}` : ""}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
-                      {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {c.service_id ? (
-                      <span>
-                        <span className="font-medium">{c.service_id}</span>
-                        {c.component_name ? (
-                          <span className="text-muted-foreground"> / {c.component_name}</span>
-                        ) : null}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">미연결</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs tabular-nums">
-                    {c.ports.length === 0
-                      ? "—"
-                      : c.ports.map((p) => `${p.host_port ?? "—"}→${p.container_port}`).join(", ")}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{formatPercent(c.cpu_percent)}</TableCell>
-                  <TableCell className="tabular-nums">{formatBytesMb(c.memory_mb)}</TableCell>
-                  <TableCell className="tabular-nums">{c.restart_count}</TableCell>
-                </TableRow>
+              {groups.map((g) => (
+                <React.Fragment key={g.key}>
+                  {hasGroupedServices ? (
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableCell colSpan={10} className="py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
+                          {g.serviceId ? (
+                            <>
+                              <span className="text-xs font-semibold">{g.name}</span>
+                              <span className="font-mono text-[11px] text-muted-foreground">
+                                {g.serviceId}
+                              </span>
+                              <Badge
+                                variant={
+                                  g.items.length > 0 && g.running === g.items.length
+                                    ? "ok"
+                                    : "warn"
+                                }
+                              >
+                                {g.running}/{g.items.length} 실행 중
+                              </Badge>
+                              <Link
+                                to={`/services/${encodeURIComponent(g.serviceId)}`}
+                                className="text-[11px] text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                서비스 상세
+                              </Link>
+                            </>
+                          ) : (
+                            <span className="text-xs font-semibold text-muted-foreground">
+                              {g.name}
+                            </span>
+                          )}
+                          <span className="ml-auto text-[11px] text-muted-foreground">
+                            {g.items.length}개
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {g.items.map((c) => (
+                    <TableRow
+                      key={c.id}
+                      className="cursor-pointer"
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${c.name} 상세 보기`}
+                      onClick={() => setFocus(c.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") setFocus(c.id);
+                      }}
+                    >
+                      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${c.name} 선택`}
+                          checked={selected.has(c.id)}
+                          onChange={() => toggleSelect(c.id)}
+                          disabled={!canSelect(c)}
+                          title={canSelect(c) ? "선택해서 서비스로 그룹핑" : "이미 서비스에 연결됨"}
+                          className="h-3.5 w-3.5 cursor-pointer accent-current disabled:cursor-not-allowed"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium leading-tight">{c.name}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">{c.id.slice(0, 12)}</div>
+                      </TableCell>
+                      <TableCell className="max-w-52">
+                        <div className="truncate font-mono text-xs">{c.image}</div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <StatusDot level={stateLevel(c.state)} />
+                          {containerStateLabel(c.state)}
+                          {c.health ? ` · ${c.health}` : ""}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
+                          {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {c.service_id ? (
+                          <span>
+                            <span className="font-medium">{c.service_id}</span>
+                            {c.component_name ? (
+                              <span className="text-muted-foreground"> / {c.component_name}</span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">미연결</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums">
+                        {c.ports.length === 0
+                          ? "—"
+                          : c.ports.map((p) => `${p.host_port ?? "—"}→${p.container_port}`).join(", ")}
+                      </TableCell>
+                      <TableCell className="tabular-nums">{formatPercent(c.cpu_percent)}</TableCell>
+                      <TableCell className="tabular-nums">{formatBytesMb(c.memory_mb)}</TableCell>
+                      <TableCell className="tabular-nums">{c.restart_count}</TableCell>
+                    </TableRow>
+                  ))}
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
