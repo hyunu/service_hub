@@ -98,6 +98,21 @@
     확인 시각은 `settings.events_state.last_read_at`에 저장(서버 일관).
   - Events 화면 진입 시 자동 확인 → 뱃지 즉시 감소(폴링 15초 + 커스텀 이벤트).
   - 실서버 검증: 뱃지 1 → 이벤트 화면 클릭 → 0 확인.
+- **trade-console 배포 실패·오매칭 수정 (2026-10-24)**:
+  - **배포 실패**: `container name "/trade-console-web" is already in use`.
+    compose 서비스명이 `web` → `console` 로 바뀌었는데 `container_name` 이 고정되어 있어,
+    이전 서비스(web)의 컨테이너가 남은 상태에서 새 컨테이너 생성이 충돌했다.
+    재시도에서 성공(`dep-f4185dec2008 succeeded`). `_compose` 실패 메시지에
+    원인/해결 힌트를 추가했다.
+  - **오매칭 버그**: `match_component` 의 이름 하위문자열 fallback 때문에
+    `trade-console-web` 이 `pianosync` 의 `web` 컴포넌트로 연결되어
+    trade-console 이 `missing`, 같은 이름 행 2개가 생겼다.
+    → 정확 매칭(compose 서비스명/컨테이너 이름)만 사용하고, 애매하면 unmanaged.
+    추가로 compose 프로젝트 == 서비스 ID 인 서비스를 우선 매칭한다.
+  - 검증: 동기화 후 `trade-console-web` 행 1개(`trade-console/console`, managed),
+    서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
+  - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
+  - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
 - **재시작 정책 always 전환 (2026-10-24, N100)**:
   - 요구사항: "부팅 시 무조건 자동 시작" (`unless-stopped`는 수동 stop 후 재부팅 시 복귀하지 않음).
   - `docker update --restart always` 로 **11개 컨테이너 전체** 즉시 적용 +
