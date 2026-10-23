@@ -98,6 +98,16 @@
     확인 시각은 `settings.events_state.last_read_at`에 저장(서버 일관).
   - Events 화면 진입 시 자동 확인 → 뱃지 즉시 감소(폴링 15초 + 커스텀 이벤트).
   - 실서버 검증: 뱃지 1 → 이벤트 화면 클릭 → 0 확인.
+- **재시작 정책 always 전환 (2026-10-24, N100)**:
+  - 요구사항: "부팅 시 무조건 자동 시작" (`unless-stopped`는 수동 stop 후 재부팅 시 복귀하지 않음).
+  - `docker update --restart always` 로 **11개 컨테이너 전체** 즉시 적용 +
+    compose 파일 영구 반영: hub `compose.yaml`(2), `/srv/services/asset-nest`(6),
+    `flow-plan`(2), `pianosync`(1) — 각 파일 백업 생성.
+  - 발견/복구: `hub-frontend`가 네트워크 미연결 상태로 crash-loop(대시보드 502)
+    → `compose up -d --force-recreate frontend` 로 복구.
+    `flow-plan-ui`도 동일 증상(nginx `host not found in upstream "backend"`, 네트워크 없음)
+    → flow-plan 스택 재생성으로 복구(8780 → HTTP 200).
+  - 최종: 11개 모두 `running` + `restart: always`, 허브 대시보드 HTTP 200.
 - **Containers 테이블 단순화 (2026-10-24)**:
   - 컬럼 10 → 8. **서비스 컬럼 제거**(그룹 헤더가 소속을 표시, 컴포넌트는 이름 옆 태그),
     **관리 상태 컬럼 제거**(상태 컬럼에 `managed`가 아닌 예외만 배지로 표시).
