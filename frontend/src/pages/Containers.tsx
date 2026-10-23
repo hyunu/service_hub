@@ -17,6 +17,7 @@ import {
   attachOrphans,
   containerAction,
   fetchContainer,
+  fetchContainerResources,
   fetchContainers,
   fetchImages,
   fetchOrphans,
@@ -26,6 +27,7 @@ import {
   removeImage,
   reviewOrphan,
   type ContainerListItem,
+  type ContainerResourceRow,
   type ContainerDetail,
   type ImageInfo,
   type ManagementState,
@@ -586,6 +588,7 @@ export default function Containers() {
 
   const state = params.get("state") ?? "";
   const management = params.get("management") ?? "";
+  const statsSeq = React.useRef(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -606,6 +609,24 @@ export default function Containers() {
     } finally {
       setLoading(false);
     }
+
+    // CPU/메모리는 docker stats 수집에 ~2초 걸리므로 목록을 먼저 보여주고
+    // 도착하는 대로 해당 컨테이너 행만 갱신한다 (실패해도 목록은 유지).
+    const seq = ++statsSeq.current;
+    void fetchContainerResources()
+      .then((resources: ContainerResourceRow[]) => {
+        if (seq !== statsSeq.current) return;
+        const byId = new Map(resources.map((r) => [r.container_id, r]));
+        setItems((prev) =>
+          prev.map((c) => {
+            const r = byId.get(c.id);
+            return r ? { ...c, cpu_percent: r.cpu_percent, memory_mb: r.mem_used_mb } : c;
+          }),
+        );
+      })
+      .catch(() => {
+        /* 자원 수집 실패는 목록 표시에 영향을 주지 않는다 (N/A 유지) */
+      });
   }, [state, management]);
 
   React.useEffect(() => {
@@ -817,7 +838,9 @@ export default function Containers() {
             {allCollapsed ? "모두 펼치기" : "모두 접기"}
           </button>
         ) : null}
-        <span className="ml-auto text-xs text-muted-foreground">{items.length}개</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {items.length}개 · CPU/메모리는 docker stats 기준(새로고침 시 갱신, N/A=측정 불가)
+        </span>
       </div>
 
       {selected.size > 0 ? (
@@ -897,8 +920,6 @@ export default function Containers() {
                 <TableHead>컨테이너</TableHead>
                 <TableHead>이미지</TableHead>
                 <TableHead>상태</TableHead>
-                <TableHead>관리 상태</TableHead>
-                <TableHead>서비스</TableHead>
                 <TableHead>포트</TableHead>
                 <TableHead>CPU</TableHead>
                 <TableHead>메모리</TableHead>
@@ -912,12 +933,12 @@ export default function Containers() {
                     <>
                       {g.key !== groups[0].key ? (
                         <TableRow aria-hidden="true" className="hover:bg-transparent">
-                          <TableCell colSpan={10} className="h-3 border-0 p-0" />
+                          <TableCell colSpan={8} className="h-3 border-0 p-0" />
                         </TableRow>
                       ) : null}
                       <TableRow className="hover:bg-transparent">
                         <TableCell
-                          colSpan={10}
+                          colSpan={8}
                           className={`border-l-4 ${g.accent.border} ${g.accent.tint} py-2`}
                         >
                           <div className="flex flex-wrap items-center gap-2">
@@ -1000,35 +1021,33 @@ export default function Containers() {
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium leading-tight">{c.name}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-medium leading-tight">{c.name}</span>
+                          {c.component_name ? (
+                            <span className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {c.component_name}
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="font-mono text-[11px] text-muted-foreground">{c.id.slice(0, 12)}</div>
                       </TableCell>
                       <TableCell className="max-w-52">
                         <div className="truncate font-mono text-xs">{c.image}</div>
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-xs">
-                          <StatusDot level={stateLevel(c.state)} />
-                          {containerStateLabel(c.state)}
-                          {c.health ? ` · ${c.health}` : ""}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
-                          {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {c.service_id ? (
-                          <span>
-                            <span className="font-medium">{c.service_id}</span>
-                            {c.component_name ? (
-                              <span className="text-muted-foreground"> / {c.component_name}</span>
-                            ) : null}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 text-xs">
+                            <StatusDot level={stateLevel(c.state)} />
+                            {containerStateLabel(c.state)}
+                            {c.health ? ` · ${c.health}` : ""}
                           </span>
-                        ) : (
-                          <span className="text-muted-foreground">미연결</span>
-                        )}
+                          {/* 정상(managed)은 표시하지 않고, 검토가 필요한 예외만 배지로 노출한다. */}
+                          {c.management_state !== "managed" ? (
+                            <Badge variant={MANAGEMENT_VARIANT[c.management_state] ?? "unknown"}>
+                              {MANAGEMENT_LABEL[c.management_state] ?? c.management_state}
+                            </Badge>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs tabular-nums">
                         {c.ports.length === 0

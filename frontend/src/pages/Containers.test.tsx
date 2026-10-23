@@ -24,13 +24,20 @@ vi.mock("../lib/api", async () => {
     ...actual,
     fetchContainers: vi.fn(async () => []),
     fetchContainer: vi.fn(),
+    fetchContainerResources: vi.fn(async () => []),
     fetchImages: vi.fn(async () => ({ items: [], actions_enabled: true })),
     fetchServices: vi.fn(async () => []),
     fetchOrphans: vi.fn(async () => []),
   };
 });
 
-import { fetchContainer, fetchContainers, fetchImages, fetchServices } from "../lib/api";
+import {
+  fetchContainer,
+  fetchContainers,
+  fetchContainerResources,
+  fetchImages,
+  fetchServices,
+} from "../lib/api";
 
 function detail(overrides: Partial<ContainerDetail> = {}): ContainerDetail {
   return {
@@ -182,6 +189,28 @@ describe("Containers 목록 — 서비스 그룹화", () => {
     await user.click(screen.getByRole("button", { name: "모두 펼치기" }));
     expect(await screen.findByText("flow-plan-ui")).toBeInTheDocument();
     expect(screen.getByText("stray-web")).toBeInTheDocument();
+  });
+
+  it("docker stats 값을 CPU/메모리 컬럼에 표시하고, 중지 컨테이너는 N/A로 둔다", async () => {
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({ id: "c1", name: "flow-plan-ui" }),
+      item({ id: "c2", name: "flow-plan-backend", state: "exited", component_name: "backend" }),
+    ]);
+    vi.mocked(fetchContainerResources).mockResolvedValue([
+      {
+        container_id: "c1", name: "flow-plan-ui", service_id: "flow-plan", state: "running",
+        cpu_percent: 12.3, mem_used_mb: 128, mem_limit_mb: 2048,
+      },
+    ]);
+    vi.mocked(fetchServices).mockResolvedValue([]);
+
+    render(<Containers />);
+
+    expect(await screen.findByText("12.3%")).toBeInTheDocument();
+    expect(screen.getByText("128 MB")).toBeInTheDocument();
+    // stats 가 없는(중지) 컨테이너는 N/A
+    expect(screen.getByText("flow-plan-backend")).toBeInTheDocument();
+    expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(2);
   });
 
   it("연결된 서비스가 없으면 그룹 헤더 없이 평면 목록으로 보인다", async () => {
