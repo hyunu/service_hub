@@ -100,3 +100,49 @@ def test_api_error_is_structured(fake, monkeypatch):
     assert out["ok"] is False
     assert out["status"] == 401
     assert out["code"] == "unauthorized"
+
+
+def test_full_workflow_tools_are_exposed():
+    tools = asyncio.run(srv.server.list_tools())
+    names = {t.name for t in tools}
+    assert {"hub_service_spec_guide", "hub_service_validate", "hub_service_scaffold",
+            "hub_deployments_list", "hub_deploy_rollback"} <= names
+
+
+def test_spec_guide_calls_api(fake):
+    out = srv.hub_service_spec_guide()
+    assert out["ok"] is True
+    assert out["data"]["path"] == "/services/spec/guide"
+
+
+def test_validate_posts_spec(fake):
+    out = srv.hub_service_validate(SPEC)
+    assert out["ok"] is True
+    assert fake.created[0]["path"] == "/services/validate"
+    assert fake.created[0]["payload"]["service"]["id"] == "my-app"
+
+
+def test_scaffold_posts_files(fake):
+    out = srv.hub_service_scaffold("my-app", "a: 1\n", "services: {}\n")
+    assert out["ok"] is True
+    assert fake.created[0]["path"] == "/services/my-app/scaffold"
+    assert fake.created[0]["payload"]["service_yaml"] == "a: 1\n"
+
+
+def test_deployments_list(fake):
+    out = srv.hub_deployments_list(service_id="my-app")
+    assert out["ok"] is True
+    assert out["data"]["path"] == "/deployments"
+
+
+def test_rollback_requires_confirmation(fake):
+    out = srv.hub_deploy_rollback("dep-1", confirmed=False)
+    assert out["ok"] is False
+    assert out["code"] == "confirmation_required"
+    assert fake.created == []
+
+
+def test_rollback_confirmed(fake):
+    out = srv.hub_deploy_rollback("dep-1", confirmed=True)
+    assert out["ok"] is True
+    assert fake.created[0]["path"] == "/deployments/dep-1/rollback"

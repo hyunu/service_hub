@@ -27,10 +27,13 @@ server = MCPServer(
     "n100-service-hub",
     version="0.1.0",
     instructions=(
-        "N100 Service Hub 관리 도구. 먼저 hub_status / hub_services_list 로 현재 상태를 "
-        "확인하고, 서비스 등록은 service.yaml(schema_version 1) dict를 hub_service_register 로 "
-        "전달한다. 배포는 hub_deploy_plan 으로 계획을 확인한 뒤 hub_deploy_apply(confirmed=true) "
-        "로 요청한다. 허브가 HUB_ENABLE_DEPLOY=false 로 잠겨 있으면 배포는 거부된다."
+        "N100 Service Hub 관리 도구. 배포 워크플로: "
+        "1) hub_service_spec_guide 로 service.yaml 형식을 확인하고, "
+        "2) hub_service_scaffold 로 /srv/services/<id>/{service.yaml,compose.yaml} 를 생성한 뒤, "
+        "3) hub_service_validate 로 검증하고 hub_service_register 로 DB에 등록한다. "
+        "4) hub_deploy_plan 으로 READY 를 확인한 뒤 hub_deploy_apply(service_id, confirmed=true) 로 배포한다. "
+        "5) hub_deploy_status / hub_deployments_list 로 결과를 확인하고 필요하면 hub_deploy_rollback. "
+        "HUB_ENABLE_DEPLOY=false 이면 scaffold/plan/apply 가 거부된다."
     ),
 )
 
@@ -75,6 +78,47 @@ def hub_services_list(search: str | None = None, status: str | None = None,
 def hub_service_get(service_id: str) -> dict:
     """서비스 상세(컴포넌트/엔드포인트/컨테이너/상태)를 반환한다."""
     return _run(lambda: _client().get(f"/services/{service_id}"))
+
+
+@server.tool()
+def hub_service_spec_guide() -> dict:
+    """service.yaml 작성 안내(최소/전체 예시·필드·규칙)를 반환한다.
+
+    배포 전에 먼저 호출해 스키마 v1 형식을 확인한다.
+    """
+    return _run(lambda: _client().get("/services/spec/guide"))
+
+
+@server.tool()
+def hub_service_validate(spec: dict) -> dict:
+    """service.yaml dict를 스키마 검증한다 (DB/파일 변경 없음)."""
+    return _run(lambda: _client().post("/services/validate", spec))
+
+
+@server.tool()
+def hub_service_scaffold(service_id: str, service_yaml: str, compose_yaml: str,
+                         overwrite: bool = False, confirm: str | None = None) -> dict:
+    """서비스 디렉터리에 service.yaml/compose.yaml을 생성한다 (배포 준비).
+
+    파일은 ``/srv/services/<service_id>/`` 에 고정된 이름으로만 생성된다.
+    이미 존재하면 ``overwrite=true`` 와 ``confirm=<service_id>`` 가 모두 필요하다.
+    배포 게이트(HUB_ENABLE_DEPLOY)가 필요하다.
+
+    Args:
+        service_id: 서비스 ID (소문자/숫자/하이픈, 3~64자)
+        service_yaml: service.yaml 전체 문자열
+        compose_yaml: compose.yaml 전체 문자열 (services 매핑 필수)
+        overwrite: 기존 디렉터리를 덮어쓸지
+        confirm: overwrite 시 서비스 ID를 그대로 입력
+    """
+    payload: dict[str, Any] = {
+        "service_yaml": service_yaml,
+        "compose_yaml": compose_yaml,
+        "overwrite": overwrite,
+    }
+    if confirm:
+        payload["confirm"] = confirm
+    return _run(lambda: _client().post(f"/services/{service_id}/scaffold", payload))
 
 
 @server.tool()
@@ -193,6 +237,13 @@ def hub_orphans_attach(service_id: str, container_ids: list[str],
 # --------------------------------------------------------------------- 배포 --
 
 @server.tool()
+def hub_deployments_list(service_id: str | None = None) -> dict:
+    """배포 이력을 최신순으로 조회한다 (service_id 로 필터 가능)."""
+    params = {"service_id": service_id} if service_id else None
+    return _run(lambda: _client().get("/deployments", params=params))
+
+
+@server.tool()
 def hub_deploy_plan(spec: dict) -> dict:
     """배포 계획을 생성한다 (컨테이너를 변경하지 않음).
 
@@ -228,6 +279,21 @@ def hub_deploy_apply(service_id: str | None = None, spec: dict | None = None,
     return _run(lambda: _client().post("/deployments", payload))
 
 
+@server.tool()
+def hub_deploy_rollback(deployment_id: str, confirmed: bool = False) -> dict:
+    """성공한 배포 시점의 스냅샷으로 되돌려 재배포한다.
+
+    배포 게이트가 필요하고, 롤백도 새 배포 레코드로 남는다.
+    DB/볼륨 변경은 자동 롤백되지 않는다.
+    """
+    if not confirmed:
+        return {"ok": False,
+                "error": "롤백을 실행하려면 confirmed=true 를 명시해야 합니다.",
+                "code": "confirmation_required"}
+    return _run(lambda: _client().post(
+        f"/deployments/{deployment_id}/rollback", {"confirmed": True}))
+
+
 # --------------------------------------------------------------------- 실행 --
 
 def main() -> None:
@@ -245,17 +311,27 @@ def main() -> None:
         os.environ["HUB_URL"] = args.url
 
     if args.print_config:
-        print(json.dumps({
-            "mcpServers": {
-                "n100-service-hub": {
-                    "command": "hub-mcp",
-                    "env": {
-                        "HUB_URL": normalize_base(os.environ.get("HUB_URL", "")),
-                        "HUB_API_KEY": "<발급받은 API 키>",
-                    },
+        if args.transport == "http":
+            # 원격(Streamable HTTP) 클라이언트용 — MCP 서버 주소만 지정한다.
+            print(json.dumps({
+                "mcpServers": {
+                    "n100-service-hub": {
+                        "url": f"http://{args.host}:{args.port}/mcp",
+                    }
                 }
-            }
-        }, ensure_ascii=False, indent=2))
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps({
+                "mcpServers": {
+                    "n100-service-hub": {
+                        "command": "hub-mcp",
+                        "env": {
+                            "HUB_URL": normalize_base(os.environ.get("HUB_URL", "")),
+                            "HUB_API_KEY": "<발급받은 API 키>",
+                        },
+                    }
+                }
+            }, ensure_ascii=False, indent=2))
         return
 
     if args.transport == "http":

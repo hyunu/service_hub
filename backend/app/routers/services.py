@@ -227,6 +227,85 @@ def validate_service_spec(payload: dict, db: Session = Depends(get_db)):
     return {"valid": True, "spec": spec.model_dump(), "errors": []}
 
 
+class ScaffoldRequest(BaseModel):
+    service_yaml: str = Field(min_length=1, max_length=200_000)
+    compose_yaml: str = Field(min_length=1, max_length=200_000)
+    overwrite: bool = False
+    confirm: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/{service_id}/scaffold", status_code=201)
+def scaffold_service(service_id: str, body: ScaffoldRequest,
+                     db: Session = Depends(get_db),
+                     actor: str = Depends(get_read_actor)):
+    """서비스 디렉터리에 service.yaml/compose.yaml을 생성한다 (배포 준비).
+
+    AI 에이전트가 MCP로 배포까지 끝낼 수 있도록 하는 파일 생성 경로다.
+    안전: 경로는 ``HUB_DEPLOY_WORKDIR/<service_id>``, 파일명은 2개로 고정한다.
+    덮어쓰기는 ``overwrite=true`` + ``confirm=service_id``가 모두 필요하고,
+    배포 게이트(`HUB_ENABLE_DEPLOY`)가 열려 있어야 한다.
+    """
+    import os
+    from pathlib import Path
+
+    import yaml
+
+    from ..services.service_spec import SpecError, validate_spec_dict
+
+    settings = get_settings()
+    ok, reason = settings.deploy_gate()
+    if not ok:
+        raise HubError(status_code=503, detail=reason, code="deploy_disabled")
+    if not SERVICE_ID_RE.match(service_id):
+        raise HubError(status_code=422, detail="서비스 ID 형식이 올바르지 않습니다",
+                       code="invalid_service_id")
+
+    try:
+        spec = validate_spec_dict(yaml.safe_load(body.service_yaml))
+    except SpecError as exc:
+        raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    except yaml.YAMLError as exc:
+        raise HubError(status_code=422, detail=f"service.yaml 파싱 오류: {exc}",
+                       code="spec_yaml_error") from exc
+    if spec.service.id != service_id:
+        raise HubError(status_code=422,
+                       detail=f"service.id({spec.service.id})와 경로 ID({service_id})가 다릅니다",
+                       code="id_mismatch")
+
+    try:
+        compose = yaml.safe_load(body.compose_yaml)
+    except yaml.YAMLError as exc:
+        raise HubError(status_code=422, detail=f"compose.yaml 파싱 오류: {exc}",
+                       code="compose_yaml_error") from exc
+    if not isinstance(compose, dict) or not isinstance(compose.get("services"), dict) \
+            or not compose["services"]:
+        raise HubError(status_code=422, detail="compose.yaml에 services 매핑이 필요합니다",
+                       code="compose_invalid")
+
+    base = Path(os.environ.get("HUB_DEPLOY_WORKDIR") or "/srv/services") / service_id
+    if base.exists() and any(base.iterdir()):
+        if not (body.overwrite and body.confirm == service_id):
+            raise HubError(
+                status_code=409,
+                detail=f"이미 존재합니다. 덮어쓰려면 overwrite=true 와 confirm='{service_id}'가 필요합니다",
+                code="already_exists")
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "service.yaml").write_text(body.service_yaml, encoding="utf-8")
+        (base / "compose.yaml").write_text(body.compose_yaml, encoding="utf-8")
+    except OSError as exc:
+        raise HubError(status_code=409, detail=f"파일을 쓸 수 없습니다: {exc}",
+                       code="scaffold_failed") from exc
+
+    record_audit(db, actor, "service.scaffold", target=service_id,
+                 detail={"path": str(base),
+                         "files": ["service.yaml", "compose.yaml"],
+                         "overwrite": body.overwrite})
+    db.commit()
+    return {"ok": True, "service_id": service_id, "path": str(base),
+            "files": ["service.yaml", "compose.yaml"], "spec": spec.model_dump()}
+
+
 @router.get("/spec/guide")
 def service_spec_guide():
     """service.yaml 작성 안내(예시·필드·규칙) — UI/문서 공용, 읽기 전용.
