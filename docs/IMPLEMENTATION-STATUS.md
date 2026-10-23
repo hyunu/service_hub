@@ -105,6 +105,14 @@
   - UI: 컨테이너 상세의 작업 버튼, Containers 하단 Images 목록/제거.
   - 실서버 검증: stop/start/remove 200, 실행 중 제거 409, 확인 불일치 422,
     assetnest 보호 403, 허브 이미지 403, 사용 중 이미지 409. 검증 후 게이트 off로 복구.
+  - **2026-10-23 사용자 승인으로 게이트 활성화**: `.env`에
+    `HUB_ENABLE_DOCKER_ACTIONS=true`, `HUB_PROTECTED_PROJECTS=infra`,
+    `HUB_PROTECTED_CONTAINERS=assetnest` 설정 후 backend 재생성
+    (백업 `/srv/service-hub/.env.bak-20261023-133157`).
+    활성화 후 재검증: `GET /images` → `actions_enabled=true`,
+    `start assetnest-mongo` → 403 `protected_container`(project `infra`/접두사 `assetnest`),
+    `stop assetnest-server` → 403, `stop hub-backend` → 403(허브 자신),
+    `remove flow-plan-ui` → 409 `container_running`. 컨테이너 상태 변화 없음.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.

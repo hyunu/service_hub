@@ -147,10 +147,15 @@ sudo hub admin reset --yes --db /var/lib/docker/volumes/service-hub_hub-data/_da
 4. 초기화 전에 발급한 **API 키는 그대로 유효**하다. 필요 없으면
    대시보드 Settings → API 키에서 폐기한다.
 
-## 7.5 현재 서버 배포 잠금 상태 (2026-10-22 기준)
+## 7.5 현재 서버 잠금 상태 (2026-10-23 기준)
 
 - N100 서버는 **배포 잠금이 열려 있다** (`HUB_ENABLE_DEPLOY=true`).
   즉 `hub deploy apply` / `hub_deploy_apply`가 실제 compose 작업을 수행할 수 있다.
+- **컨테이너/이미지 조작도 열려 있다** (`HUB_ENABLE_DOCKER_ACTIONS=true`, 사용자 승인).
+  단, `HUB_PROTECTED_PROJECTS=infra` / `HUB_PROTECTED_CONTAINERS=assetnest` 로
+  기존 assetnest 스택은 보호되고, 허브 자신은 코드 수준에서 항상 차단된다.
+  기존 서비스(assetnest 등)를 조작해야 한다면 보호 목록을 임의로 풀지 말고
+  먼저 사용자 승인을 받는다.
 - 실행기는 `HUB_DEPLOY_WORKDIR/<service_id>`(= `/srv/services/<service_id>`)의
   `compose.yaml`만 사용한다. 등록 시의 `deployment_path`는 표시용이며 실행 경로가 아니다.
 - 따라서 배포 가능한 서비스의 전제: **호스트에 `/srv/services/<service-id>/compose.yaml`이 존재**.
