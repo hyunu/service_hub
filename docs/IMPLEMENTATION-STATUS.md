@@ -163,6 +163,21 @@
   수동 배지 확인 → 1건 해제. **15초 모니터 동기화 후에도 연결 유지** 확인.
   검증용 서비스/연결은 모두 삭제해 레지스트리·미관리 수(7)를 원상복구했다.
 
+### 최종 상태 배포 (2026-10-23, N100 — `b5a93d6`)
+- 저장소 최신 커밋(`b5a93d6`) 기준으로 `docker compose up -d --build --force-recreate` 수행.
+- 게이트: backend 177 passed / CLI 36 / MCP 22 / frontend 55 (build OK).
+- 결과: `hub-backend` healthy, `hub-frontend` Up, 대시보드 HTTP 200,
+  `/services/spec/guide`·`/images` → 401(인증 요구 = 라우터 배포 확인).
+- 설정: `enable_deploy=true`(배포 가능), `enable_docker_actions=false`(컨테이너 조작 잠김),
+  `deploy_snapshot_dir=/data/deploy-snapshots`.
+- 데이터: services 4 / containers 12 / api_keys 3 / deployments 19 / events 34 / audit_logs 90.
+- **기존 서비스 보존**: assetnest 컨테이너 6개 ID 전부 동일(재생성 없음)
+  (`0658bb58ed30` mongo, `281a5ffa17c0` trade-api, `b97010895241` collector,
+  `e6a755b025ae` trade-rule-server, `f64e1ca4f4cb` server, `fe9f09aaabef` dashboard).
+  볼륨 `assetnest-mongo-data`·`assetnest-certbot-www` 유지.
+- 참고: 볼륨/네트워크 **목록 md5는 변경**됐다 — 허브 배포가 아니라 신규 서비스
+  (`flow-plan`, `pianosync`)의 볼륨/네트워크가 추가된 결과다. assetnest 자원은 그대로다.
+
 ### 배포 잠금 해제 (2026-10-22, N100)
 - 사용자 승인 후 `/srv/service-hub/.env`의 `HUB_ENABLE_DEPLOY=false` → `true`로 변경하고
   백엔드를 재기동했다. 백업: `/srv/service-hub/.env.bak-20261021-172317`.
