@@ -13,7 +13,7 @@ services:
       context: ./backend
     image: n100-service-hub-backend:0.1.0
     container_name: hub-backend
-    restart: unless-stopped
+    restart: always
     environment:
       HUB_BIND: 0.0.0.0          # 컨테이너 내부 바인딩 (호스트에서는 HUB_PORT만 노출)
       HUB_PORT: 8420
@@ -63,7 +63,7 @@ services:
       context: ./frontend
     image: n100-service-hub-frontend:0.1.0
     container_name: hub-frontend
-    restart: unless-stopped
+    restart: always
     depends_on:
       backend:
         condition: service_healthy
