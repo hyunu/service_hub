@@ -276,7 +276,8 @@ def hub_deploy_apply(service_id: str | None = None, spec: dict | None = None,
     else:
         return {"ok": False, "error": "service_id 또는 spec 중 하나가 필요합니다.",
                 "code": "spec_required"}
-    return _run(lambda: _client().post("/deployments", payload))
+    # 빌드가 포함되면 수 분 걸릴 수 있다 — 기본 60초 타임아웃으로는 실패로 보인다.
+    return _run(lambda: _client().post("/deployments", payload, timeout=600))
 
 
 @server.tool()
@@ -291,7 +292,7 @@ def hub_deploy_rollback(deployment_id: str, confirmed: bool = False) -> dict:
                 "error": "롤백을 실행하려면 confirmed=true 를 명시해야 합니다.",
                 "code": "confirmation_required"}
     return _run(lambda: _client().post(
-        f"/deployments/{deployment_id}/rollback", {"confirmed": True}))
+        f"/deployments/{deployment_id}/rollback", {"confirmed": True}, timeout=600))
 
 
 # --------------------------------------------------------------------- 실행 --

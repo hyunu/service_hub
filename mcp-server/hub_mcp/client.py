@@ -45,11 +45,13 @@ class HubClient:
         return headers
 
     def request(self, method: str, path: str, json: Any | None = None,
-                params: dict[str, Any] | None = None) -> Any:
+                params: dict[str, Any] | None = None,
+                timeout: float | None = None) -> Any:
         url = f"{self.base_url}{path}"
         try:
             resp = httpx.request(method, url, json=json, params=params,
-                                 headers=self._headers(), timeout=self.timeout)
+                                 headers=self._headers(),
+                                 timeout=timeout or self.timeout)
         except httpx.HTTPError as exc:
             raise HubApiError(
                 f"Service Hub에 연결할 수 없습니다: {url} ({exc}). "
@@ -71,8 +73,8 @@ class HubClient:
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self.request("GET", path, params=params)
 
-    def post(self, path: str, payload: Any) -> Any:
-        return self.request("POST", path, json=payload)
+    def post(self, path: str, payload: Any, timeout: float | None = None) -> Any:
+        return self.request("POST", path, json=payload, timeout=timeout)
 
     def delete(self, path: str) -> Any:
         return self.request("DELETE", path)

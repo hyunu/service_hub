@@ -36,7 +36,7 @@ class FakeClient:
     def get(self, path, params=None):
         return {"items": [], "path": path}
 
-    def post(self, path, payload):
+    def post(self, path, payload, timeout=None):
         self.created.append({"path": path, "payload": payload})
         return {"deployment_id": "dep-1", "status": "succeeded"}
 
