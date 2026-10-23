@@ -83,6 +83,13 @@
   - CLI `hub admin reset`: API 모드(`--url`/`--token`) + 오프라인 모드(`--db`, 백업 후
     `settings`/`webauthn_credentials`만 삭제). `--yes` 없이는 실행하지 않는다.
   - N100 실서버에서 실제로 관리자 초기화 수행 완료(아래 배포 검증 참고).
+- **컨테이너/이미지 조작 (2026-10-23)**:
+  - 시작/정지/제거 + 이미지 목록/제거. 기본 잠금(`HUB_ENABLE_DOCKER_ACTIONS=false`).
+  - 허브 자신·보호 대상 차단, 제거는 실행 중 거부 + 정확한 이름 확인, 이미지는
+    사용 중/허브 이미지 차단. 모든 조작 감사 로그.
+  - UI: 컨테이너 상세의 작업 버튼, Containers 하단 Images 목록/제거.
+  - 실서버 검증: stop/start/remove 200, 실행 중 제거 409, 확인 불일치 422,
+    assetnest 보호 403, 허브 이미지 403, 사용 중 이미지 409. 검증 후 게이트 off로 복구.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.
@@ -104,7 +111,7 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **159 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **167 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
 | CLI | `cd cli && uv run pytest` | **36 passed** (Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
