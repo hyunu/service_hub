@@ -113,6 +113,12 @@
     `start assetnest-mongo` → 403 `protected_container`(project `infra`/접두사 `assetnest`),
     `stop assetnest-server` → 403, `stop hub-backend` → 403(허브 자신),
     `remove flow-plan-ui` → 409 `container_running`. 컨테이너 상태 변화 없음.
+  - **UI 사전 차단 (2026-10-23)**: 백엔드는 403으로 막고 있었지만 대시보드는 전역
+    게이트만 보고 버튼을 활성화해, 눌러야 거부를 알 수 있었다.
+    `GET /containers[/{id}]`에 `protected_reason`·`actions_allowed`를 추가하고
+    (판정은 `app/services/protection.py`로 단일화) 상세 화면이 사유와 함께 버튼을
+    비활성화한다. 실서버 확인: 허브 2개·assetnest 2개 → `actions_allowed=false`,
+    `flow-plan-ui`·`pianosync-web` → `true`.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.
