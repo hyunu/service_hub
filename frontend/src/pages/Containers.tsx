@@ -122,8 +122,8 @@ function DetailDrawer({
         service_id: attachService.trim(),
         component_name: attachComponent.trim(),
       });
-      setActionMsg("연결했습니다. 실제 컨테이너는 재생성되지 않았습니다.");
       await load();
+      setActionMsg("연결했습니다. 실제 컨테이너는 재생성되지 않았습니다.");
     } catch (e) {
       setActionMsg(isApiError(e) ? e.message : "연결에 실패했습니다.");
     } finally {
@@ -136,8 +136,8 @@ function DetailDrawer({
     setActionMsg(null);
     try {
       await reviewOrphan(containerId, { review_state: reviewState });
-      setActionMsg(`검토 상태를 "${REVIEW_LABEL[reviewState] ?? reviewState}"(으)로 변경했습니다.`);
       await load();
+      setActionMsg(`검토 상태를 "${REVIEW_LABEL[reviewState] ?? reviewState}"(으)로 변경했습니다.`);
     } catch (e) {
       setActionMsg(isApiError(e) ? e.message : "검토 상태 변경에 실패했습니다.");
     } finally {
@@ -150,8 +150,9 @@ function DetailDrawer({
     setActionMsg(null);
     try {
       await containerAction(containerId, action);
-      setActionMsg(action === "start" ? "컨테이너를 시작했습니다." : "컨테이너를 정지했습니다.");
       await load();
+      // load()가 메시지를 초기화하므로 결과 표시는 반드시 load 이후에 한다.
+      setActionMsg(action === "start" ? "컨테이너를 시작했습니다." : "컨테이너를 정지했습니다.");
     } catch (e) {
       setActionMsg(isApiError(e) ? e.message : "작업에 실패했습니다.");
     } finally {
