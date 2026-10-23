@@ -83,6 +83,12 @@
   - CLI `hub admin reset`: API 모드(`--url`/`--token`) + 오프라인 모드(`--db`, 백업 후
     `settings`/`webauthn_credentials`만 삭제). `--yes` 없이는 실행하지 않는다.
   - N100 실서버에서 실제로 관리자 초기화 수행 완료(아래 배포 검증 참고).
+- **이벤트 확인(unread 뱃지, 2026-10-23)**:
+  - 상단 뱃지를 "최근 100개 중 warning/critical"에서 **마지막 확인 이후 미읽음 수**로 변경.
+  - `GET /events/unread-count`, `POST /events/acknowledge`(CSRF) 추가.
+    확인 시각은 `settings.events_state.last_read_at`에 저장(서버 일관).
+  - Events 화면 진입 시 자동 확인 → 뱃지 즉시 감소(폴링 15초 + 커스텀 이벤트).
+  - 실서버 검증: 뱃지 1 → 이벤트 화면 클릭 → 0 확인.
 - **컨테이너/이미지 조작 (2026-10-23)**:
   - 시작/정지/제거 + 이미지 목록/제거. 기본 잠금(`HUB_ENABLE_DOCKER_ACTIONS=false`).
   - 허브 자신·보호 대상 차단, 제거는 실행 중 거부 + 정확한 이름 확인, 이미지는
@@ -111,7 +117,7 @@
 
 | 게이트 | 명령 | 결과 |
 |---|---|---|
-| 백엔드 | `cd backend && uv run pytest` | **167 passed** (Phase 1: 52) |
+| 백엔드 | `cd backend && uv run pytest` | **170 passed** (Phase 1: 52) |
 | §19.6 기존 서비스 보호 | `uv run pytest tests/test_protection.py -v` | **skip** — 로컬 Docker Desktop 엔진 응답 없음 → **N100 서버에서 1 passed** (아래) |
 | CLI | `cd cli && uv run pytest` | **36 passed** (Phase 1: 14) |
 | 프론트엔드 테스트 | `npm run test --prefix frontend` | **48 passed (10 files)** (Phase 1: 30) |
