@@ -98,6 +98,14 @@
     확인 시각은 `settings.events_state.last_read_at`에 저장(서버 일관).
   - Events 화면 진입 시 자동 확인 → 뱃지 즉시 감소(폴링 15초 + 커스텀 이벤트).
   - 실서버 검증: 뱃지 1 → 이벤트 화면 클릭 → 0 확인.
+- **Containers 테이블 단순화 (2026-10-24)**:
+  - 컬럼 10 → 8. **서비스 컬럼 제거**(그룹 헤더가 소속을 표시, 컴포넌트는 이름 옆 태그),
+    **관리 상태 컬럼 제거**(상태 컬럼에 `managed`가 아닌 예외만 배지로 표시).
+  - CPU/메모리가 항상 N/A였던 원인: 목록 API가 자원 값을 제공하지 않음.
+    `GET /resources/containers`(docker stats)를 ID로 병합하되, 수집에 ~2초 걸리므로
+    목록을 먼저 표시하고 도착 시 행만 갱신(점진 로딩, 시퀀스 토큰으로 역전 방지).
+  - 재시작 횟수는 정상: `docker inspect .RestartCount`와 일치
+    (assetnest-dashboard 3330, assetnest-mongo 13618, 나머지 0/1).
 - **Overview 호스트 자원 1초 자동 갱신 (2026-10-24)**:
   - 개요 화면이 보이는 동안 `GET /resources/host`만 1초 간격으로 폴링해
     CPU/메모리/디스크 게이지를 갱신한다 (전체 개요 재조회 없음).
