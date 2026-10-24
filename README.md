@@ -6,6 +6,7 @@ N100 PC 한 대에서 운영하는 여러 Docker Compose 기반 서비스를 통
 
 - 요구사항 기준 문서: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - AI 코딩 도구 배포 규칙: [AI-OPERATIONS.md](AI-OPERATIONS.md)
+- 무인 배포 운영 가이드: [docs/UNATTENDED-DEPLOY.md](docs/UNATTENDED-DEPLOY.md)
 - 설계/보안/현황: [docs/](docs/) — 구현 상태는 [docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md)
 
 ## 구성
