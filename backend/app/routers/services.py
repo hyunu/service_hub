@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -210,6 +210,83 @@ def create_service(body: ServiceCreate, db: Session = Depends(get_db),
     record_audit(db, actor, "service.create", target=body.id)
     db.commit()
     return _summary(db, svc)
+
+
+@router.post("/{service_id}/source")
+async def upload_source(service_id: str, request: Request,
+                        db: Session = Depends(get_db),
+                        actor: str = Depends(get_read_actor)):
+    """로컬 소스 아카이브(tar.gz)를 받아 배포 디렉터리에 반영한다.
+
+    MCP/AI 가 SSH 없이 소스를 동기화하는 경로다.
+    - 컨테이너/이미지는 건드리지 않는다 (반영 후 배포는 별도 단계).
+    - 아카이브는 프로젝트 루트 기준(`./`)으로 만든다.
+    - 안전: 상대 경로만, 일반 파일/디렉터리만, 크기/개수 상한, 기존 파일 덮어쓰기(삭제 없음).
+    """
+    import os
+    import tempfile
+    from pathlib import Path as _Path
+
+    from ..services.source_sync import SourceArchiveError, extract_source
+
+    settings = get_settings()
+    if not settings.enable_source_upload:
+        raise HubError(status_code=503,
+                       detail="소스 업로드가 비활성화되어 있습니다 "
+                              "(HUB_ENABLE_SOURCE_UPLOAD=false)",
+                       code="source_upload_disabled")
+    _service_or_404(db, service_id)
+    if not SERVICE_ID_RE.match(service_id):
+        raise HubError(status_code=422, detail="서비스 ID 형식이 올바르지 않습니다",
+                       code="invalid_service_id")
+
+    ctype = (request.headers.get("content-type") or "").split(";")[0].strip()
+    if ctype not in ("application/gzip", "application/x-gzip", "application/x-tar",
+                     "application/octet-stream"):
+        raise HubError(status_code=415,
+                       detail="Content-Type 은 application/gzip 이어야 합니다",
+                       code="unsupported_media_type")
+
+    base = os.environ.get("HUB_DEPLOY_WORKDIR") or "./services-local"
+    target = _Path(base) / service_id
+
+    limit = max(1, settings.source_upload_max_mb) * 1024 * 1024
+    fd, tmp_name = tempfile.mkstemp(prefix="hub-upload-", suffix=".tar.gz")
+    total = 0
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > limit:
+                    raise HubError(status_code=413,
+                                   detail=f"업로드가 너무 큽니다 (최대 {settings.source_upload_max_mb}MB)",
+                                   code="source_too_large")
+                fh.write(chunk)
+        if total == 0:
+            raise HubError(status_code=422, detail="빈 아카이브입니다",
+                           code="source_archive_empty")
+        try:
+            result = extract_source(_Path(tmp_name), target,
+                                    max_extract_mb=settings.source_upload_max_extract_mb)
+        except SourceArchiveError as exc:
+            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+    record_audit(db, actor, "service.source_upload", target=service_id,
+                 detail={"files": result["files"], "bytes_received": total})
+    db.commit()
+    return {
+        "ok": True,
+        "service_id": service_id,
+        **result,
+        "bytes_received": total,
+        "runtime_changed": False,
+        "note": "소스만 반영했습니다. 컨테이너/이미지는 변경되지 않았습니다.",
+    }
 
 
 @router.post("/validate")

@@ -81,6 +81,7 @@ HUB_URL=http://127.0.0.1:8420/api/v1 HUB_API_KEY=hub_... \
 | `hub_ports_list` | 포트 사용/예약 현황 |
 | `hub_service_logs` | 서비스 로그 |
 | `hub_service_register` | service.yaml로 서비스 등록 (`dry_run` 지원) |
+| `hub_service_sync_source` | **로컬 소스 디렉터리를 허브로 업로드** (SSH 불필요) |
 | `hub_orphans_attach` | 미관리 컨테이너를 서비스에 수동 연결 |
 | `hub_deploy_plan` | 배포 계획 생성 (변경 없음) |
 | `hub_deploy_apply` | 배포 실행 (`confirmed=true` 필요) |
@@ -88,6 +89,20 @@ HUB_URL=http://127.0.0.1:8420/api/v1 HUB_API_KEY=hub_... \
 
 모든 도구는 `{"ok": true, "data": ...}` 또는
 `{"ok": false, "error": ..., "code": ..., "status": ...}` 형태로 응답합니다.
+
+## 4.1 소스 동기화 (SSH 없이)
+
+배포 디렉터리는 서버에 있어야 합니다. MCP가 로컬 소스를 tar.gz로 묶어 업로드합니다.
+
+```text
+hub_service_sync_source(service_id="pianosync", path="/Users/me/proj/pianosync")
+→ { ok: true, data: { files: 42, raw_bytes: ..., result: {...} } }
+```
+
+- 서버 설정 필요: `HUB_ENABLE_SOURCE_UPLOAD=true` (기본 false, `.env`)
+- 기본 제외: `.git`, `node_modules`, `.venv`, `__pycache__`, `.pytest_cache`, `.DS_Store`
+- 덮어쓰기만 하고 **파일 삭제는 반영하지 않습니다**
+- 안전: 상대 경로·일반 파일만, `..`/절대 경로/심볼릭 링크 거부, 크기·개수 상한, 감사 로그
 
 ## 5. 사용 예 (AI에게 이렇게 말하면 됩니다)
 

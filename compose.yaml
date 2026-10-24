@@ -30,6 +30,9 @@ services:
       # 컨테이너 안에서는 platform.node()가 컨테이너 ID를 반환한다.
       # 실제 호스트명을 표시하려면 .env에 HUB_HOST_HOSTNAME=<호스트명>을 넣는다.
       HUB_HOST_HOSTNAME: "${HUB_HOST_HOSTNAME:-}"
+      # MCP/AI 가 로컬 소스를 /srv/services/<id> 로 업로드 — 기본 잠금.
+      HUB_ENABLE_SOURCE_UPLOAD: "${HUB_ENABLE_SOURCE_UPLOAD:-false}"
+      HUB_SOURCE_UPLOAD_MAX_MB: "${HUB_SOURCE_UPLOAD_MAX_MB:-200}"
       # 컨테이너/이미지 시작·정지·제거 — 기본 잠금. 보호 대상은 콤마 구분.
       HUB_ENABLE_DOCKER_ACTIONS: "${HUB_ENABLE_DOCKER_ACTIONS:-false}"
       HUB_PROTECTED_CONTAINERS: "${HUB_PROTECTED_CONTAINERS:-}"

@@ -9,8 +9,11 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 
 ## 1) 배포 모델 — 가장 중요
 - 허브는 **서버(N100)의 `/srv/services/<service-id>` 디렉터리를 빌드**한다.
-- MCP는 **소스 코드 업로드 도구가 아니다.** 로컬/에디터의 코드는 먼저 서버로
-  동기화해야 한다(SSH `rsync` 또는 서버에서 `git pull`).
+- 소스 동기화는 **`hub_service_sync_source`** 로 MCP가 직접 수행한다
+  (로컬 디렉터리 → tar.gz → 허브가 `/srv/services/<id>` 에 안전하게 반영).
+  **SSH 접속이나 git 자격증명이 필요 없다.** rsync/git pull 은 대안일 뿐이다.
+  - `HUB_ENABLE_SOURCE_UPLOAD=true` 필요(기본 false). 꺼져 있으면 503.
+  - 제외 기본값: `.git`, `node_modules`, `.venv`, `__pycache__` 등 (`exclude`로 추가)
 - 배포 = **소스 동기화 → service.yaml 검증/등록 → 계획(plan) → 실행(apply)**.
 - `hub_deploy_apply`는 내부적으로 `docker compose up -d --build`를 실행하므로
   동기화된 소스 변경이 이미지에 반영된다(레이어 캐시로 보통 1초 내외).
@@ -26,7 +29,8 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 ## 3) 워크플로 (도구 순서)
 1. `hub_status` — 허브/도커/모니터 상태
 2. `hub_service_spec_guide` — service.yaml 예시·필드·규칙
-3. **소스 동기화 (MCP 외부 작업)** — SSH/rsync 또는 서버 `git pull`
+3. `hub_service_sync_source(service_id, path)` — 로컬 소스 업로드 (SSH 불필요)
+   (`dry_run=true`로 크기/파일 수 먼저 확인 가능)
 4. `hub_service_scaffold` — `/srv/services/<id>/{service.yaml,compose.yaml}` 생성
    (이미 있으면 `overwrite=true` + `confirm=<id>`)
 5. `hub_service_validate` — 스키마 검증 (변경 없음)
@@ -38,14 +42,13 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 
 ## 4) 코드 수정 후 재배포
 ```
-# (AI 외부 또는 SSH 가능 시) 소스 동기화 예시
-rsync -rl --checksum --inplace --delete \\
-  --exclude '__pycache__' --exclude '*.pyc' \\
-  <local>/pianosync/ n100-pve-dev:/srv/services/pianosync/pianosync/
+# 1) 소스 업로드 (SSH 불필요)
+hub_service_sync_source(service_id="pianosync", path="/Users/me/proj/pianosync")
 
-# MCP
-hub_deploy_apply(service_id="...", confirmed=true)
+# 2) 배포
+hub_deploy_apply(service_id="pianosync", confirmed=true)
 ```
+- 파일 삭제는 반영되지 않는다(덮어쓰기만). 삭제가 필요하면 서버에서 직접 정리한다.
 - 실측: 동기화 ~1초, `build` 0.6~0.9초(캐시), `up` ~1초 → **약 2~3초**
 - 컨테이너 재생성 대기로 간헐적으로 ~10초 걸릴 수 있다.
 - **정적 파일(CSS/HTML)만 바꾸는 경우**에도 현재는 이미지 재빌드가 필요하다.
@@ -72,6 +75,8 @@ hub_deploy_apply(service_id="...", confirmed=true)
 | `protected_container`/`protected_image`(403) | 허브 자신/보호 대상 |
 | `confirm_mismatch`(422) | 확인 이름/태그 불일치 |
 | `snapshot_missing`(409) | 롤백 스냅샷 없음 |
+| `source_upload_disabled`(503) | `HUB_ENABLE_SOURCE_UPLOAD=true` 필요 |
+| `source_path_traversal`(422) | 아카이브에 `..`/절대 경로 포함 → 루트 기준으로 다시 묶기 |
 | `unauthorized`(401) | API 키 만료/폐기 |
 
 ## 8) 안전 규칙
@@ -88,8 +93,8 @@ def deployment_guide() -> dict:
     return {
         "model": {
             "build_context": "/srv/services/<service-id> (서버)",
-            "mcp_role": "REST API 호출만 — 소스 업로드 도구가 아니다",
-            "source_sync": "SSH rsync 또는 서버 git pull (MCP 외부)",
+            "mcp_role": "REST API 호출만 (임의 셸 없음)",
+            "source_sync": "hub_service_sync_source (MCP가 소스 업로드, SSH 불필요)",
             "apply_behavior": "docker compose up -d --build (레이어 캐시)",
         },
         "prerequisites": [
@@ -101,7 +106,7 @@ def deployment_guide() -> dict:
         "workflow": [
             "hub_status",
             "hub_service_spec_guide",
-            "source sync (SSH rsync / git pull) — MCP 외부",
+            "hub_service_sync_source (local dir → /srv/services/<id>)",
             "hub_service_scaffold (overwrite+confirm if exists)",
             "hub_service_validate",
             "hub_service_register (deployment_path=/srv/services/<id>)",

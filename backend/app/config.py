@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # 배포 시점 service.yaml/compose.yaml 스냅샷 위치 (롤백용). 빈 값이면 스냅샷 비활성.
     deploy_snapshot_dir: str = "/data/deploy-snapshots"
 
+    # MCP/자동화가 로컬 소스를 /srv/services/<service-id> 로 업로드 (파괴적). 기본 잠금.
+    enable_source_upload: bool = False
+    source_upload_max_mb: int = 200       # 업로드 압축 파일 최대 크기
+    source_upload_max_extract_mb: int = 1024   # 압축 해제 후 최대 크기
     # 컨테이너/이미지 시작·정지·제거 (파괴적). 기본 잠금.
     enable_docker_actions: bool = False
     # 보호 대상(콤마 구분). 이름 접두사/정확히 일치, compose 프로젝트명.

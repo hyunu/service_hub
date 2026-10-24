@@ -40,6 +40,11 @@ class FakeClient:
         self.created.append({"path": path, "payload": payload})
         return {"deployment_id": "dep-1", "status": "succeeded"}
 
+    def post_raw(self, path, body, content_type, timeout=None):
+        self.created.append({"path": path, "bytes": len(body),
+                             "content_type": content_type})
+        return {"ok": True, "files": 1, "target": "/srv/services/svc"}
+
 
 SPEC = {
     "schema_version": 1,
@@ -87,6 +92,31 @@ def test_deploy_apply_requires_target(fake):
     out = srv.hub_deploy_apply(confirmed=True)
     assert out["ok"] is False
     assert out["code"] == "spec_required"
+
+
+def test_sync_source_dry_run(tmp_path):
+    (tmp_path / "app.py").write_text("print(1)")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.js").write_text("x")
+    out = srv.hub_service_sync_source("svc", str(tmp_path), dry_run=True)
+    assert out["ok"] is True
+    assert out["data"]["files"] == 1          # node_modules 제외
+    assert out["data"]["dry_run"] is True
+
+
+def test_sync_source_uploads(fake, tmp_path):
+    (tmp_path / "app.py").write_text("print(1)")
+    out = srv.hub_service_sync_source("svc", str(tmp_path))
+    assert out["ok"] is True
+    assert out["data"]["files"] == 1
+    # 서버 응답은 FakeClient 가 받는다
+    assert out["data"]["result"] is not None
+
+
+def test_sync_source_invalid_path():
+    out = srv.hub_service_sync_source("svc", "/definitely/not/a/dir")
+    assert out["ok"] is False
+    assert out["code"] == "invalid_path"
 
 
 def test_api_error_is_structured(fake, monkeypatch):
@@ -152,7 +182,8 @@ def test_deployment_guide_tool():
     """접속한 AI가 배포 모델을 스스로 파악할 수 있어야 한다."""
     out = srv.hub_deployment_guide()
     assert out["model"]["build_context"].startswith("/srv/services/")
-    assert "rsync" in out["model"]["source_sync"]
+    assert "sync_source" in out["model"]["source_sync"]
+    assert "SSH" in out["model"]["source_sync"]
     assert any("hub_deploy_apply" in step for step in out["workflow"])
     assert "시크릿" in out["markdown"]
     assert "deploy_disabled" in out["error_codes"]

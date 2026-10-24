@@ -15,8 +15,12 @@ AI 에이전트(Claude Code, Cursor, Codex 등)가 이 허브에 **서비스를 
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import io
 import json
 import os
+import tarfile
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -249,6 +253,86 @@ def hub_service_register(spec: dict, deployment_path: str | None = None,
             return {"dry_run": True, "payload": payload}
         created = client.create_service(payload)
         return {"service": created, "payload": payload}
+
+    return _run(_do)
+
+
+SOURCE_SKIP_NAMES = {".git", "node_modules", ".venv", "venv", "__pycache__",
+                     ".pytest_cache", ".mypy_cache", ".DS_Store"}
+
+
+def build_source_archive(root: Path, excludes: list[str], max_mb: int) -> tuple[bytes, int, int]:
+    """로컬 디렉터리를 루트 기준 tar.gz 로 묶는다.
+
+    반환: (압축 바이트, 원본 바이트 합, 파일 수)
+    """
+    buf = io.BytesIO()
+    total = 0
+    count = 0
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if d not in SOURCE_SKIP_NAMES
+                and not any(fnmatch.fnmatch(d, pat) for pat in excludes)
+            )
+            for name in sorted(filenames):
+                if name in SOURCE_SKIP_NAMES:
+                    continue
+                if any(fnmatch.fnmatch(name, pat) for pat in excludes):
+                    continue
+                full = Path(dirpath) / name
+                if full.is_symlink() or not full.is_file():
+                    continue
+                try:
+                    size = full.stat().st_size
+                except OSError:
+                    continue
+                total += size
+                if total > max_mb * 1024 * 1024:
+                    raise ValueError(f"소스가 너무 큽니다 (>{max_mb}MB): {full}")
+                rel = full.relative_to(root).as_posix()
+                tf.add(full, arcname=f"./{rel}", recursive=False)
+                count += 1
+    return buf.getvalue(), total, count
+
+
+@server.tool()
+def hub_service_sync_source(service_id: str, path: str,
+                            exclude: list[str] | None = None,
+                            dry_run: bool = False, max_mb: int = 200) -> dict:
+    """로컬 디렉터리 소스를 허브의 배포 디렉터리로 업로드한다 (SSH/git 불필요).
+
+    허브는 받은 tar.gz 를 `/srv/services/<service_id>` 에 안전하게 풀어 쓴다.
+    컨테이너/이미지는 건드리지 않으므로, 이어서 `hub_deploy_apply` 로 배포한다.
+
+    Args:
+        service_id: 등록된 서비스 ID (= 배포 디렉터리 이름)
+        path: 업로드할 로컬 디렉터리 경로 (절대/상대 모두 가능)
+        exclude: 추가 제외 패턴 (fnmatch). 기본적으로 .git/node_modules/.venv/__pycache__ 제외
+        dry_run: true 면 아카이브만 만들어 크기/파일 수를 반환하고 업로드하지 않는다
+        max_mb: 원본 크기 상한(MB)
+    """
+    root = Path(path).expanduser().resolve()
+    if not root.is_dir():
+        return {"ok": False, "error": f"디렉터리가 아닙니다: {root}", "code": "invalid_path"}
+
+    try:
+        archive, raw_bytes, count = build_source_archive(root, list(exclude or []), max_mb)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "code": "source_too_large"}
+    except OSError as exc:
+        return {"ok": False, "error": f"파일을 읽을 수 없습니다: {exc}", "code": "source_read_error"}
+
+    meta = {"source": str(root), "files": count, "raw_bytes": raw_bytes,
+            "archive_bytes": len(archive)}
+    if dry_run:
+        return {"ok": True, "data": {**meta, "dry_run": True}}
+
+    def _do() -> dict:
+        result = _client().post_raw(f"/services/{service_id}/source", archive,
+                                    "application/gzip", timeout=300.0)
+        return {**meta, "result": result}
 
     return _run(_do)
 

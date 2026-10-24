@@ -99,6 +99,14 @@
   - API 키도 배포 잠금(`HUB_ENABLE_DEPLOY`)·화이트리스트·`confirmed=true` 검증을
     우회하지 못한다 — 권한은 "누가 요청했는가"만 바꾼다.
   - MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며 셸/파일 실행 도구를 노출하지 않는다.
+- 소스 업로드(`POST /services/{service_id}/source`)는 배포 디렉터리를 덮어쓸 수 있으므로
+  다음을 강제한다.
+  - 기본 `HUB_ENABLE_SOURCE_UPLOAD=false` (잠금). 인증된 세션/쓰기 권한 API 키 필요.
+  - 대상은 `<HUB_DEPLOY_WORKDIR>/<service_id>` 하나로 고정 (서비스 ID 정규식 재검증).
+  - tar.gz 멤버는 **상대 경로 + 일반 파일/디렉터리**만 허용. `..`/절대 경로/심볼릭 링크/
+    하드 링크/장치·파이프는 거부. 파일 수·압축 해제 크기·파일 크기 상한.
+  - 임시 디렉터리에서 검증 후 복사하며, 기존 파일을 삭제하지 않는다(prune 없음).
+  - 업로드는 감사 로그(`service.source_upload`)에 기록된다.
 
 ## 수용 불가 구조 (명시)
 

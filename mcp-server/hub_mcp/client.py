@@ -76,6 +76,29 @@ class HubClient:
     def post(self, path: str, payload: Any, timeout: float | None = None) -> Any:
         return self.request("POST", path, json=payload, timeout=timeout)
 
+    def post_raw(self, path: str, body: bytes, content_type: str,
+                 timeout: float | None = None) -> Any:
+        """원시 본문 업로드 (tar.gz 등)."""
+        url = f"{self.base_url}{path}"
+        headers = {**self._headers(), "Content-Type": content_type}
+        try:
+            resp = httpx.request("POST", url, content=body, headers=headers,
+                                 timeout=timeout or self.timeout)
+        except httpx.HTTPError as exc:
+            raise HubApiError(
+                f"Service Hub에 연결할 수 없습니다: {url} ({exc}).",
+                status=0, code="unreachable") from exc
+
+        if resp.status_code >= 400:
+            detail, code = _error_body(resp)
+            raise HubApiError(detail, status=resp.status_code, code=code)
+        if not resp.content:
+            return None
+        try:
+            return resp.json()
+        except ValueError:
+            return resp.text
+
     def delete(self, path: str) -> Any:
         return self.request("DELETE", path)
 

@@ -198,6 +198,16 @@ MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 
 > 배포는 `/srv/services/<service_id>/compose.yaml`에서만 동작한다(§7.5).
 > 등록만으로는 컨테이너가 생기지 않으며, 실제 배포는 이 디렉터리가 준비된 뒤에 수행한다.
 
+### 8.2.1 소스 동기화 방식 (SSH 없이)
+
+| 방식 | 자격증명 | 비고 |
+|---|---|---|
+| `hub_service_sync_source` (권장) | 허브 API 키만 | MCP가 로컬 tar.gz 업로드 → `/srv/services/<id>` |
+| `rsync`/`scp` | SSH 키 | 수동. AI 세션에 SSH 정보를 노출해야 함 |
+| 서버에서 `git pull` | 서버의 git 자격증명 | 디렉터리가 git repo여야 함 |
+
+기본 제외 항목: `.git`, `node_modules`, `.venv`, `__pycache__`, `.pytest_cache`, `.DS_Store`.
+
 ### 8.3 금지/주의
 
 - MCP로도 §0의 절대 금지 작업을 우회할 수 없다 (도구 자체가 없다).
