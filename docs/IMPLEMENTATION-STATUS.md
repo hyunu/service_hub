@@ -113,6 +113,16 @@
     서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
   - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
   - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
+- **SSH 없는 소스 동기화 (2026-10-24, MCP)**:
+  - `POST /api/v1/services/{id}/source` — tar.gz 업로드로 `/srv/services/<id>` 갱신.
+    `HUB_ENABLE_SOURCE_UPLOAD`(기본 false) 게이트. 상대 경로/일반 파일만, 크기·개수 상한,
+    경로 조작·심볼릭 링크 거부, 덮어쓰기만(삭제 없음), 감사 로그. 컨테이너/이미지 무변경.
+  - MCP `hub_service_sync_source(service_id, path)`: 로컬 디렉터리를 tar.gz로 묶어 업로드.
+    기본 제외 `.git`/`node_modules`/`.venv`/`__pycache__` 등, `dry_run` 지원.
+  - N100 실서버 E2E: MCP로 2개 파일 업로드 → `/srv/services/src-probe/hello.txt` 확인
+    (권한 664/775, uid 10001) → 테스트 서비스/키/디렉터리 정리 완료.
+  - 이제 AI 워크플로: `sync_source` → `deploy_plan` → `deploy_apply` (SSH 불필요).
+  - `.env`에 `HUB_ENABLE_SOURCE_UPLOAD=true` 적용(백업 `.env.bak-20261024-064100`).
 - **Containers UI 정리 (2026-10-24)**:
   - 서비스 그룹을 **기본 접힘**으로 변경(`펼친 그룹`만 기억, 새 그룹도 자동 접힘).
   - 그룹 헤더 슬림화: 이름 + `n/m 실행 중`만. ID는 이름의 슬러그와 다를 때만,
