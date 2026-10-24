@@ -33,6 +33,7 @@ import {
   registerPasskey,
   type PasskeyInfo,
 } from "../lib/webauthn";
+import { copyText } from "../lib/clipboard";
 import { formatDateTime, formatRelative } from "../lib/format";
 import { PageHeader, LoadingState, ErrorState, EmptyState } from "../components/feedback";
 import { Button } from "../components/ui/button";
@@ -724,13 +725,13 @@ function ApiKeySettings() {
   };
 
   const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
+    const ok = await copyText(text);
+    setCopied(ok);
+    if (!ok) {
+      setNotice({ ok: false, text: "복사에 실패했습니다. 브라우저 권한 또는 HTTPS 접속을 확인하세요." });
+      return;
     }
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   const mcpSnippet = created

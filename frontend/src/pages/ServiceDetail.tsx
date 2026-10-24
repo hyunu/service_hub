@@ -1,7 +1,9 @@
 import * as React from "react";
+import { copyText } from "../lib/clipboard";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
+  Check,
   Copy,
   ExternalLink,
   GitBranch,
@@ -86,6 +88,20 @@ function kv(label: string, value: React.ReactNode) {
 /* --------------------------------- 페이지 --------------------------------- */
 
 export default function ServiceDetail() {
+  const [copiedEndpoint, setCopiedEndpoint] = React.useState<string | null>(null);
+  const [copyError, setCopyError] = React.useState<string | null>(null);
+
+  const copyEndpoint = async (key: string, url: string) => {
+    setCopyError(null);
+    const ok = await copyText(url);
+    if (ok) {
+      setCopiedEndpoint(key);
+      window.setTimeout(() => setCopiedEndpoint((cur) => (cur === key ? null : cur)), 1500);
+    } else {
+      setCopyError("복사에 실패했습니다. 브라우저 권한 또는 HTTPS 접속 여부를 확인하세요.");
+    }
+  };
+
   const { serviceId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -261,9 +277,16 @@ export default function ServiceDetail() {
                                   variant="ghost"
                                   size="sm"
                                   aria-label={`${ep.name} 주소 복사`}
-                                  onClick={() => void navigator.clipboard.writeText(url)}
+                                  onClick={() => void copyEndpoint(ep.name, url)}
                                 >
-                                  <Copy className="h-3.5 w-3.5" />
+                                  {copiedEndpoint === ep.name ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                  <span className="ml-1 text-[11px]">
+                                    {copiedEndpoint === ep.name ? "복사됨" : "복사"}
+                                  </span>
                                 </Button>
                               </>
                             ) : (
@@ -282,6 +305,9 @@ export default function ServiceDetail() {
                     })}
                   </div>
                 )}
+                {copyError ? (
+                  <p className="mt-2 text-xs text-destructive" role="alert">{copyError}</p>
+                ) : null}
               </CardContent>
             </Card>
 

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { BookOpen, Check, Copy, Download } from "lucide-react";
 import { fetchSpecGuide, isApiError, type SpecGuide } from "../lib/api";
+import { copyText } from "../lib/clipboard";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { LoadingState, ErrorState } from "./feedback";
@@ -9,13 +10,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 /** 코드 블록 + 복사 버튼 */
 function CodeBlock({ code, label }: { code: string; label?: string }) {
   const [copied, setCopied] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
+    const ok = await copyText(code);
+    setFailed(!ok);
+    if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* 클립보드 권한이 없으면 조용히 무시 */
+    } else {
+      window.setTimeout(() => setFailed(false), 2500);
     }
   };
   return (
@@ -24,7 +27,7 @@ function CodeBlock({ code, label }: { code: string; label?: string }) {
         {label ? <span className="text-[11px] text-muted-foreground">{label}</span> : <span />}
         <Button variant="ghost" size="sm" onClick={() => void copy()} aria-label="복사">
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "복사됨" : "복사"}
+          {copied ? "복사됨" : failed ? "복사 실패" : "복사"}
         </Button>
       </div>
       <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/30 p-3 text-[11px] leading-relaxed">
