@@ -113,6 +113,14 @@
     서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
   - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
   - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
+- **무인 배포 지원 (2026-10-24, N100 설정 적용)**:
+  - 배포 허용 목록(`HUB_DEPLOY_ALLOWED_SERVICES`) 실제 강제, 실패 시 자동 롤백
+    (`HUB_DEPLOY_AUTO_ROLLBACK`), 결과 웹훅(`HUB_DEPLOY_WEBHOOK_URL`, HMAC 서명).
+  - 소스 업로드 시 `.env`/`*.pem`/`*.key` → 0600.
+  - N100 설정: `HUB_ENABLE_DEPLOY=true`, `HUB_ENABLE_SOURCE_UPLOAD=true`,
+    `HUB_DEPLOY_AUTO_ROLLBACK=true`, 허용 목록 비움(전체), 웹훅 미설정.
+  - 사람이 한 번만 하는 것: API 키 발급 + MCP 클라이언트 설정.
+  - 테스트: `test_unattended_deploy.py` 7건 (backend 199 passed / MCP 25 passed).
 - **SSH 없는 소스 동기화 (2026-10-24, MCP)**:
   - `POST /api/v1/services/{id}/source` — tar.gz 업로드로 `/srv/services/<id>` 갱신.
     `HUB_ENABLE_SOURCE_UPLOAD`(기본 false) 게이트. 상대 경로/일반 파일만, 크기·개수 상한,
