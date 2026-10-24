@@ -269,7 +269,8 @@ async def upload_source(service_id: str, request: Request,
             result = extract_source(_Path(tmp_name), target,
                                     max_extract_mb=settings.source_upload_max_extract_mb)
         except SourceArchiveError as exc:
-            raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+            status = 409 if exc.code == "source_write_forbidden" else 422
+            raise HubError(status_code=status, detail=str(exc), code=exc.code) from exc
     finally:
         try:
             os.unlink(tmp_name)

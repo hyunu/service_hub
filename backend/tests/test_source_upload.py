@@ -152,3 +152,23 @@ def test_upload_rejects_wrong_content_type(app_factory, settings, tmp_path):
         assert r.status_code == 415
     finally:
         client.__exit__(None, None, None)
+
+
+def test_upload_permission_error_is_actionable(app_factory, settings, tmp_path, monkeypatch):
+    """쓰기 권한이 없으면 500이 아니라 409 + 해결 방법을 알려준다."""
+    workdir = tmp_path / "services"
+    workdir.mkdir()
+    client = _client(app_factory, settings, workdir)
+    try:
+        _service(client)
+
+        def _deny(*a, **k):
+            raise PermissionError("denied")
+
+        monkeypatch.setattr("shutil.copyfile", _deny)
+        r = _upload(client, "src-svc", _tar_gz({"app.py": b"x"}))
+        assert r.status_code == 409
+        assert r.json()["code"] == "source_write_forbidden"
+        assert "chmod" in r.json()["detail"]
+    finally:
+        client.__exit__(None, None, None)

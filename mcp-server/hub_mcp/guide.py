@@ -26,7 +26,9 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 - (선택) `HUB_DEPLOY_ALLOWED_SERVICES=a,b` — 목록 밖 서비스는 403 `service_not_allowed`
 - (선택) `HUB_DEPLOY_AUTO_ROLLBACK=true` — 배포 실패 시 직전 성공 배포로 자동 롤백
 - (선택) `HUB_DEPLOY_WEBHOOK_URL` — 배포 결과를 JSON으로 POST (실패해도 배포엔 영향 없음)
-- `/srv/services/<id>` 쓰기 권한: 백엔드 uid 10001(소유자) / `hubdeploy` 그룹
+- `/srv/services/<id>` 쓰기 권한: 백엔드 uid 10001 / `hubdeploy` 그룹
+  - 업로드가 `409 source_write_forbidden` 이면 서버에서
+    `sudo chmod -R g+rwX /srv/services/<id>` (또는 `chown -R 10001:10001`)
 - 포트 충돌 없음: `hub_ports_list`로 확인
 - 시크릿은 `.env`에만. `service.yaml`에는 **이름만**
 
@@ -87,6 +89,7 @@ hub_deploy_apply(service_id="pianosync", confirmed=true)
 | `snapshot_missing`(409) | 롤백 스냅샷 없음 |
 | `source_upload_disabled`(503) | `HUB_ENABLE_SOURCE_UPLOAD=true` 필요 |
 | `source_path_traversal`(422) | 아카이브에 `..`/절대 경로 포함 → 루트 기준으로 다시 묶기 |
+| `source_write_forbidden`(409) | 디렉터리 권한 → `sudo chmod -R g+rwX /srv/services/<id>` |
 | `unauthorized`(401) | API 키 만료/폐기 |
 
 ## 8) 안전 규칙

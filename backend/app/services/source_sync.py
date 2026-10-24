@@ -86,12 +86,18 @@ def extract_source(archive: Path, target: Path, *,
             for fn in filenames:
                 src = Path(root) / fn
                 dst = dest_dir / fn
-                shutil.copyfile(src, dst)
-                executable = os.access(src, os.X_OK)
-                if _is_secret_file(fn):
-                    _chmod(dst, 0o600)
-                else:
-                    _chmod(dst, 0o775 if executable else 0o664)
+                try:
+                    shutil.copyfile(src, dst)
+                    executable = os.access(src, os.X_OK)
+                    if _is_secret_file(fn):
+                        _chmod(dst, 0o600)
+                    else:
+                        _chmod(dst, 0o775 if executable else 0o664)
+                except PermissionError as exc:
+                    raise SourceArchiveError(
+                        f"배포 디렉터리에 쓸 수 없습니다: {dst}. "
+                        f"`sudo chmod -R g+rwX {target}` 로 그룹 쓰기 권한을 준 뒤 "
+                        f"다시 시도하세요.", "source_write_forbidden") from exc
                 files += 1
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

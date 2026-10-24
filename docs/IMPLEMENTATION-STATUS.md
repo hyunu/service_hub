@@ -113,6 +113,18 @@
     서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
   - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
   - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
+- **무인 배포 실검증 (2026-10-24, flow-plan)**:
+  - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
+    (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.
+    - dry_run: 139 files / 30.2MB / archive 15.3MB
+    - 실제 업로드 성공 → `/srv/services/flow-plan/app/...` (mtime 08:16)
+  - 최초 업로드는 `PermissionError`(500) → `/srv/services/<id>` 하위가 그룹 쓰기 불가였음.
+    `sudo chmod -R g+rwX /srv/services` 로 해결(소유자 유지). 업로더는 이제
+    `409 source_write_forbidden` + 해결 명령을 안내한다.
+  - MCP `hub_deploy_apply(service_id=flow-plan, confirmed=true)` →
+    `dep-de5fb2c57f4f` **succeeded** (108초, queued→validating→running→verifying→succeeded).
+  - 결과: flow-plan-backend/ui 모두 healthy, `http://100.85.245.79:8780` **200**,
+    다른 서비스(assetnest·pianosync·trade-engine·hub) 무변경.
 - **무인 배포 지원 (2026-10-24, N100 설정 적용)**:
   - 배포 허용 목록(`HUB_DEPLOY_ALLOWED_SERVICES`) 실제 강제, 실패 시 자동 롤백
     (`HUB_DEPLOY_AUTO_ROLLBACK`), 결과 웹훅(`HUB_DEPLOY_WEBHOOK_URL`, HMAC 서명).
