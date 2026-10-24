@@ -88,12 +88,24 @@ def extract_source(archive: Path, target: Path, *,
                 dst = dest_dir / fn
                 shutil.copyfile(src, dst)
                 executable = os.access(src, os.X_OK)
-                _chmod(dst, 0o775 if executable else 0o664)
+                if _is_secret_file(fn):
+                    _chmod(dst, 0o600)
+                else:
+                    _chmod(dst, 0o775 if executable else 0o664)
                 files += 1
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     return {"files": files, "dirs": dirs, "bytes": total_bytes, "target": str(target)}
+
+
+def _is_secret_file(name: str) -> bool:
+    """`.env` 계열/키 파일은 600 으로 저장한다 (예시 파일 제외)."""
+    lowered = name.lower()
+    if lowered in (".env.example", ".env.sample", ".env.template"):
+        return False
+    return (lowered == ".env" or lowered.startswith(".env.")
+            or lowered.endswith((".pem", ".key")))
 
 
 def _chmod(path: Path, mode: int) -> None:

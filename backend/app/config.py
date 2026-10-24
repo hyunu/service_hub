@@ -17,7 +17,13 @@ class Settings(BaseSettings):
     monitor_interval: int = 15
     monitor_enabled: bool = True          # 테스트에서 비활성화
     enable_deploy: bool = False           # Phase 3 잠금 — 기본 false
-    deploy_allowed_services: list[str] = []   # 비어 있으면 모든 서비스 허용 (게이트 통과 시)
+    # 배포 허용 목록(콤마 구분). 비어 있으면 모든 서비스 허용 (게이트 통과 시)
+    deploy_allowed_services: str = ""
+    # 배포 실패 시 직전 성공 배포로 자동 롤백
+    deploy_auto_rollback: bool = False
+    # 배포 결과 웹훅 (POST JSON). 비어 있으면 비활성
+    deploy_webhook_url: str = ""
+    deploy_webhook_secret: str = ""
     deploy_compose_timeout: int = 600     # compose 작업 타임아웃(초)
     # 배포 시점 service.yaml/compose.yaml 스냅샷 위치 (롤백용). 빈 값이면 스냅샷 비활성.
     deploy_snapshot_dir: str = "/data/deploy-snapshots"
@@ -84,6 +90,10 @@ class Settings(BaseSettings):
     def webauthn_enabled(self) -> bool:
         """rp_id와 origin이 모두 있어야 WebAuthn을 켠다 (HTTPS 전제)."""
         return bool(self.webauthn_rp_id and self.webauthn_origin)
+
+    @property
+    def deploy_allowed(self) -> list[str]:
+        return [s.strip() for s in (self.deploy_allowed_services or "").split(",") if s.strip()]
 
     def deploy_gate(self) -> tuple[bool, str]:
         """배포 허용 여부와 사유. 잠금이 기본값이다 (AGENTS.md 규칙 #2)."""

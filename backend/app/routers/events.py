@@ -79,6 +79,17 @@ def list_audit_logs(limit: int = 100, db: Session = Depends(get_db)):
                        "target": a.target, "detail": a.detail} for a in rows]}
 
 
+def _require_allowed_service(settings, service_id: str) -> None:
+    """배포 허용 목록이 설정된 경우 해당 서비스만 허용한다."""
+    allowed = settings.deploy_allowed
+    if allowed and service_id not in allowed:
+        raise HubError(
+            status_code=403,
+            detail=f"'{service_id}'는 배포 허용 목록에 없습니다 "
+                   f"(HUB_DEPLOY_ALLOWED_SERVICES)",
+            code="service_not_allowed")
+
+
 def _deploy_disabled():
     raise HubError(status_code=503,
                         detail="배포 기능은 아직 비활성화되어 있습니다 (Phase 3). "
@@ -173,6 +184,7 @@ def plan_deployment(payload: dict, db: Session = Depends(get_db),
             spec = validate_spec_dict(spec_dict)
     except SpecError as exc:
         raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    _require_allowed_service(get_settings(), spec.service.id)
     ctx = _collect_plan_context(db, spec)
     plan = build_plan(spec, ctx)
     record_audit(db, actor, "deploy.plan", target=spec.service.id,
@@ -222,6 +234,7 @@ def create_deployment(payload: dict, db: Session = Depends(get_db),
         except SpecError as exc:
             raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
 
+    _require_allowed_service(settings, spec.service.id)
     ctx = _collect_plan_context(db, spec)
     plan = build_plan(spec, ctx)
     if plan["result"] != "READY":
@@ -252,9 +265,26 @@ def create_deployment(payload: dict, db: Session = Depends(get_db),
     finally:
         runner.release(spec.service.id)
 
-    return {"deployment_id": dep.id, "service_id": dep.service_id, "status": dep.status,
-            "error": dep.error, "started_at": dep.started_at,
-            "finished_at": dep.finished_at}
+    result = {"deployment_id": dep.id, "service_id": dep.service_id, "status": dep.status,
+              "error": dep.error, "started_at": dep.started_at,
+              "finished_at": dep.finished_at}
+
+    # 무인 운영: 실패하면 직전 성공 배포로 자동 롤백
+    if dep.status == "failed" and settings.deploy_auto_rollback:
+        from ..services.deploy_rollback import latest_successful, perform_rollback
+        prev = latest_successful(db, dep.service_id, exclude=dep.id)
+        if prev is not None:
+            try:
+                rb = perform_rollback(db, prev, actor=f"{actor} (auto-rollback)",
+                                      reason=f"deployment {dep.id} failed")
+                result["auto_rollback"] = rb
+                result["auto_rolled_back"] = rb.get("status") == "succeeded"
+            except HubError as exc:
+                result["auto_rollback_error"] = {"detail": exc.detail, "code": exc.code}
+
+    from ..services.deploy_notify import notify_deployment
+    notify_deployment(dep)
+    return result
 
 
 @deploy_router.post("/{deployment_id}/rollback", status_code=202)
@@ -264,77 +294,27 @@ def rollback_deployment(deployment_id: str, payload: dict | None = None,
     """배포 시점 스냅샷으로 되돌려 재배포한다 (REQUIREMENTS §13.4).
 
     - 대상 배포는 ``succeeded``여야 하고, 그 배포의 스냅샷이 있어야 한다.
-    - 스냅샷의 `service.yaml`/`compose.yaml`을 배포 디렉터리에 복원한 뒤
-      일반 배포 경로(게이트/계획/실행)를 그대로 다시 탄다.
+    - 실행 로직은 `perform_rollback` 으로 분리되어 자동 롤백과 공유한다.
     - DB/볼륨 변경은 자동 롤백하지 않는다(요구사항 §13.4).
     """
-    from ..dependencies import build_deploy_runner
-    from ..services.deploy_plan import build_plan
-    from ..services.deploy_runner import DeploymentBusy
-    from ..services.deploy_snapshot import restore_snapshot
-    from ..services.service_spec import SpecError, parse_spec
+    from ..services.deploy_rollback import perform_rollback
 
     settings = get_settings()
-    ok, _reason = settings.deploy_gate()
+    ok, reason = settings.deploy_gate()
     if not ok:
-        _deploy_disabled()
+        _deploy_disabled()   # type: ignore[misc]
 
     dep = db.get(Deployment, deployment_id)
     if dep is None:
         raise HubError(status_code=404, detail="배포 작업을 찾을 수 없습니다",
                        code="deployment_not_found")
-    if dep.status != "succeeded":
-        raise HubError(status_code=409,
-                       detail=f"성공한 배포만 롤백할 수 있습니다 (현재: {dep.status})",
-                       code="rollback_not_allowed")
-
-    runner = build_deploy_runner()
-    workdir = runner.workdir_resolver(dep.service_id)
-    try:
-        restored = restore_snapshot(settings.deploy_snapshot_dir, dep.service_id,
-                                    deployment_id, workdir)
-    except PermissionError as exc:
-        raise HubError(status_code=409, detail=str(exc),
-                       code="snapshot_restore_forbidden") from exc
-    except FileNotFoundError as exc:
-        raise HubError(status_code=409, detail=str(exc), code="snapshot_missing") from exc
-
-    try:
-        spec = parse_spec(workdir)
-    except SpecError as exc:
-        raise HubError(status_code=409,
-                       detail=f"스냅샷의 service.yaml을 해석할 수 없습니다: {exc}",
-                       code="snapshot_incomplete") from exc
-
-    ctx = _collect_plan_context(db, spec)
-    plan = build_plan(spec, ctx)
-    if plan["result"] != "READY":
-        raise HubError(status_code=409,
-                       detail="롤백 계획이 READY가 아닙니다: " +
-                              "; ".join(i["message"] for i in plan["impact"]),
-                       code="plan_not_ready")
-
-    try:
-        runner.acquire(dep.service_id)
-    except DeploymentBusy as exc:
-        raise HubError(status_code=409, detail=str(exc), code="deployment_busy") from exc
-
+    _require_allowed_service(settings, dep.service_id)
+    result = perform_rollback(db, dep, actor=actor)
     record_audit(db, actor, "deploy.rollback", target=dep.service_id,
-                 detail={"from_deployment": deployment_id, "restored_files": restored})
+                 detail={"from_deployment": deployment_id,
+                         "new_deployment": result.get("deployment_id")})
     db.commit()
-
-    try:
-        new = runner.run(spec, ctx, actor=actor)
-    except PermissionError as exc:
-        raise HubError(status_code=503, detail=str(exc), code="deploy_disabled") from exc
-    except ValueError as exc:
-        raise HubError(status_code=409, detail=str(exc), code="plan_not_ready") from exc
-    finally:
-        runner.release(dep.service_id)
-
-    return {"deployment_id": new.id, "service_id": new.service_id,
-            "status": new.status, "error": new.error,
-            "rollback_of": deployment_id, "restored_files": restored}
+    return result
 
 
 @deploy_router.get("/{deployment_id}/logs")

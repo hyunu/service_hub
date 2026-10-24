@@ -208,6 +208,22 @@ MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 
 
 기본 제외 항목: `.git`, `node_modules`, `.venv`, `__pycache__`, `.pytest_cache`, `.DS_Store`.
 
+### 8.2.2 무인 배포 (사람 개입 없음)
+
+서버 설정이 아래와 같으면 AI가 **등록 → 소스 업로드 → 계획 → 배포 → 확인 → 롤백**까지
+사람 없이 수행할 수 있다.
+
+| 설정 | 값 | 역할 |
+|---|---|---|
+| `HUB_ENABLE_DEPLOY` | `true` | 배포 허용 |
+| `HUB_ENABLE_SOURCE_UPLOAD` | `true` | 소스 업로드 허용 |
+| `HUB_DEPLOY_AUTO_ROLLBACK` | `true` | 실패 시 자동 롤백 |
+| `HUB_DEPLOY_ALLOWED_SERVICES` | (비우면 전체) | 무인 배포 허용 서비스 제한 |
+| `HUB_DEPLOY_WEBHOOK_URL` | (선택) | 결과 통지 |
+
+사람이 한 번만 해두면 되는 것: **API 키 발급**(대시보드)과 MCP 클라이언트 설정.
+그 외 배포 과정에는 사람이 필요 없다.
+
 ### 8.3 금지/주의
 
 - MCP로도 §0의 절대 금지 작업을 우회할 수 없다 (도구 자체가 없다).

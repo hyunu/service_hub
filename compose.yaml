@@ -23,6 +23,11 @@ services:
       HUB_DEPLOY_WORKDIR: /srv/services
       # 배포 게이트 기본 잠금. 열려면 .env에 HUB_ENABLE_DEPLOY=true (docs/SECURITY.md 확인)
       HUB_ENABLE_DEPLOY: "${HUB_ENABLE_DEPLOY:-false}"
+      # 배포 허용 목록(콤마 구분, 비우면 전체) / 실패 시 자동 롤백 / 결과 웹훅
+      HUB_DEPLOY_ALLOWED_SERVICES: "${HUB_DEPLOY_ALLOWED_SERVICES:-}"
+      HUB_DEPLOY_AUTO_ROLLBACK: "${HUB_DEPLOY_AUTO_ROLLBACK:-false}"
+      HUB_DEPLOY_WEBHOOK_URL: "${HUB_DEPLOY_WEBHOOK_URL:-}"
+      HUB_DEPLOY_WEBHOOK_SECRET: "${HUB_DEPLOY_WEBHOOK_SECRET:-}"
       # 생체인식(WebAuthn) — HTTPS 보안 컨텍스트에서만 동작한다. 둘 다 설정해야 켜진다.
       # 예: HUB_WEBAUTHN_RP_ID=<tailnet FQDN>, HUB_WEBAUTHN_ORIGIN=https://<tailnet FQDN>
       HUB_WEBAUTHN_RP_ID: "${HUB_WEBAUTHN_RP_ID:-}"

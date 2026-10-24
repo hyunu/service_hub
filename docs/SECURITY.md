@@ -107,6 +107,11 @@
     하드 링크/장치·파이프는 거부. 파일 수·압축 해제 크기·파일 크기 상한.
   - 임시 디렉터리에서 검증 후 복사하며, 기존 파일을 삭제하지 않는다(prune 없음).
   - 업로드는 감사 로그(`service.source_upload`)에 기록된다.
+  - `.env`/`*.pem`/`*.key` 는 업로드 시 **0600** 으로 저장한다(`.env.example` 제외).
+- 무인 배포(`HUB_DEPLOY_AUTO_ROLLBACK`, `HUB_DEPLOY_ALLOWED_SERVICES`, 웹훅)
+  - 허용 목록이 설정되면 목록 밖 서비스의 계획/실행/롤백은 `403 service_not_allowed`.
+  - 자동 롤백은 **직전 성공 배포의 스냅샷**만 사용하며, DB/볼륨은 되돌리지 않는다.
+  - 웹훅은 `HUB_DEPLOY_WEBHOOK_SECRET`이 있으면 HMAC 서명을 붙인다. 실패해도 배포는 계속된다.
 
 ## 수용 불가 구조 (명시)
 

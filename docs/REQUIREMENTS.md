@@ -443,6 +443,14 @@ DB 스키마 변경과 데이터 볼륨 변경은 자동 롤백 대상이 아니
 (`sudo chown -R 10001:10001 /srv/services/<id>`), `hub service new`를 root로
 실행하면 자동으로 소유권을 맞춘다.
 
+### 13.4.1 무인 배포(자동화)
+사람이 개입하지 않아도 배포가 완결되어야 한다.
+- 소스 동기화(§8.5) → 계획 → 실행 → 상태 확인 → 실패 시 롤백을 AI가 수행한다.
+- `HUB_DEPLOY_AUTO_ROLLBACK=true`면 배포 실패 시 **직전 성공 배포의 스냅샷으로 자동 롤백**한다.
+- `HUB_DEPLOY_ALLOWED_SERVICES`(콤마 구분)로 무인 배포 허용 서비스를 제한할 수 있다.
+- `HUB_DEPLOY_WEBHOOK_URL`이 설정되면 성공/실패/롤백 결과를 JSON으로 통지한다
+  (HMAC-SHA256 서명 헤더 `X-Hub-Signature` 지원). 실패해도 배포에는 영향을 주지 않는다.
+
 ## 14. AI 전용 관리 인터페이스
 
 ### 14.1 구조화된 출력

@@ -22,6 +22,10 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 
 ## 2) 사전 조건
 - 배포 게이트: `HUB_ENABLE_DEPLOY=true` (아니면 scaffold/plan/apply 모두 503)
+- 소스 업로드: `HUB_ENABLE_SOURCE_UPLOAD=true` (아니면 503)
+- (선택) `HUB_DEPLOY_ALLOWED_SERVICES=a,b` — 목록 밖 서비스는 403 `service_not_allowed`
+- (선택) `HUB_DEPLOY_AUTO_ROLLBACK=true` — 배포 실패 시 직전 성공 배포로 자동 롤백
+- (선택) `HUB_DEPLOY_WEBHOOK_URL` — 배포 결과를 JSON으로 POST (실패해도 배포엔 영향 없음)
 - `/srv/services/<id>` 쓰기 권한: 백엔드 uid 10001(소유자) / `hubdeploy` 그룹
 - 포트 충돌 없음: `hub_ports_list`로 확인
 - 시크릿은 `.env`에만. `service.yaml`에는 **이름만**
@@ -38,7 +42,12 @@ DEPLOYMENT_GUIDE = """# N100 Service Hub 배포 가이드
 7. `hub_deploy_plan` — `result=READY` 확인 (`impact`가 비어야 함)
 8. `hub_deploy_apply(service_id, confirmed=true)` — 실제 배포
 9. `hub_deploy_status` / `hub_deployments_list` — 결과 확인
-10. 실패/문제 시 `hub_deploy_rollback(deployment_id, confirmed=true)`
+10. 실패 시: `HUB_DEPLOY_AUTO_ROLLBACK=true`면 응답에 `auto_rolled_back`/`auto_rollback`이 포함된다.
+    자동 롤백이 없거나 실패했다면 `hub_deploy_rollback(deployment_id, confirmed=true)`
+
+> **무인 운영**: 사람이 지켜보지 않아도 되도록
+> ① 소스 업로드(sync_source) ② 계획 확인 ③ 실행 ④ 상태 확인 ⑤ 실패 시 자동/수동 롤백
+> 순서를 에이전트가 끝까지 수행한다. 결과는 웹훅으로 통지할 수 있다.
 
 ## 4) 코드 수정 후 재배포
 ```
@@ -69,6 +78,7 @@ hub_deploy_apply(service_id="pianosync", confirmed=true)
 | 코드 | 의미 / 대처 |
 |---|---|
 | `deploy_disabled`(503) | 게이트 꺼짐 → 관리자에게 `HUB_ENABLE_DEPLOY=true` 요청 |
+| `service_not_allowed`(403) | `HUB_DEPLOY_ALLOWED_SERVICES` 목록에 없는 서비스 |
 | `plan_not_ready`(409) | 포트 충돌/필수 env/계획 문제 → `impact` 확인 |
 | `already_exists`(409) | 디렉터리 존재 → `overwrite=true` + `confirm` |
 | `container_running`(409) | 제거 전 정지 필요 |
@@ -96,6 +106,8 @@ def deployment_guide() -> dict:
             "mcp_role": "REST API 호출만 (임의 셸 없음)",
             "source_sync": "hub_service_sync_source (MCP가 소스 업로드, SSH 불필요)",
             "apply_behavior": "docker compose up -d --build (레이어 캐시)",
+            "auto_rollback": "HUB_DEPLOY_AUTO_ROLLBACK=true 이면 실패 시 직전 성공 배포로 복귀",
+            "notification": "HUB_DEPLOY_WEBHOOK_URL 로 결과 JSON POST (선택)",
         },
         "prerequisites": [
             "HUB_ENABLE_DEPLOY=true",
