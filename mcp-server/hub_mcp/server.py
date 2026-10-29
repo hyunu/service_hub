@@ -33,16 +33,15 @@ server = MCPServer(
     "n100-service-hub",
     version="0.1.0",
     instructions=(
-        "N100 Service Hub 관리 도구. "
-        "**배포 모델**: 허브는 서버의 /srv/services/<service-id> 를 빌드한다. "
-        "MCP는 소스 업로드 도구가 아니므로, 소스는 먼저 SSH rsync 또는 서버 git pull 로 "
-        "동기화해야 한다. 배포/재배포 전에 **hub_deployment_guide** 를 먼저 호출해 "
-        "모델·사전조건·절차·시크릿·오류를 확인하라. "
-        "워크플로: hub_service_spec_guide → (소스 동기화) → hub_service_scaffold → "
-        "hub_service_validate → hub_service_register → hub_deploy_plan(READY) → "
+        "N100 Service Hub 관리 도구. **배포 모델**: 허브는 서버의 "
+        "/srv/services/<service-id> 를 빌드한다. 소스는 hub_service_sync_source 로 "
+        "MCP가 직접 업로드할 수 있다(SSH·git 자격증명 불필요). "
+        "워크플로: hub_service_spec_guide → hub_service_scaffold → hub_service_validate → "
+        "hub_service_register → hub_service_sync_source → hub_deploy_plan(READY) → "
         "hub_deploy_apply(service_id, confirmed=true) → hub_deploy_status. "
-        "롤백은 hub_deploy_rollback(deployment_id, confirmed=true). "
-        "HUB_ENABLE_DEPLOY=false 이면 scaffold/plan/apply 는 503 으로 거부된다."
+        "실패 시 자동 롤백(HUB_DEPLOY_AUTO_ROLLBACK) 또는 hub_deploy_rollback. "
+        "배포 전에 hub_deployment_guide 로 사전조건·오류를 확인하라. "
+        "원격(HTTP) 모드는 요청마다 X-API-Key 가 필요하다."
     ),
 )
 
