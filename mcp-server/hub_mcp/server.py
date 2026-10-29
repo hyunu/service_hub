@@ -20,6 +20,7 @@ import io
 import json
 import os
 import tarfile
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +47,12 @@ server = MCPServer(
 )
 
 
+# HTTP(원격) 모드에서 요청별 X-API-Key 를 도구 실행 컨텍스트로 전달한다.
+_REQUEST_API_KEY: ContextVar[str | None] = ContextVar("hub_request_api_key", default=None)
+
+
 def _client() -> HubClient:
-    return HubClient()
+    return HubClient(api_key=_REQUEST_API_KEY.get())
 
 
 def _run(fn, *args, **kwargs) -> dict:
@@ -414,6 +419,50 @@ def hub_deploy_rollback(deployment_id: str, confirmed: bool = False) -> dict:
 
 # --------------------------------------------------------------------- 실행 --
 
+class RequireApiKeyMiddleware:
+    """원격(HTTP) 모드에서 요청마다 X-API-Key(또는 Bearer)를 요구한다.
+
+    키는 그대로 허브 API 호출에 사용되므로, 클라이언트(API 키)의 scope/폐기 정책이
+    그대로 적용된다 — 서버에 별도 상시 시크릿을 두지 않는다.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                   for k, v in (scope.get("headers") or [])}
+        key = headers.get("x-api-key")
+        if not key:
+            auth = headers.get("authorization") or ""
+            if auth.lower().startswith("bearer "):
+                key = auth[7:].strip()
+        if not key:
+            body = b'{"error":"X-API-Key header required"}'
+            await send({"type": "http.response.start", "status": 401,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        token = _REQUEST_API_KEY.set(key)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _REQUEST_API_KEY.reset(token)
+
+
+def run_http(host: str, port: int) -> None:
+    import uvicorn
+
+    app = server.streamable_http_app(streamable_http_path="/mcp",
+                                     stateless_http=True, host=host)
+    app.add_middleware(RequireApiKeyMiddleware)
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="hub-mcp", description="N100 Service Hub MCP 서버")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio",
@@ -453,7 +502,7 @@ def main() -> None:
         return
 
     if args.transport == "http":
-        server.run("streamable-http", host=args.host, port=args.port)
+        run_http(args.host, args.port)
     else:
         server.run("stdio")
 
