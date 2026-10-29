@@ -1,0 +1,22 @@
+[Unit]
+Description=N100 Service Hub MCP (HTTP, tailnet)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hyunu
+Group=hubdeploy
+WorkingDirectory=/home/hyunu/projects/service_hub/mcp-server
+Environment=HOME=/home/hyunu
+Environment=PATH=/home/hyunu/.local/bin:/usr/local/bin:/usr/bin:/bin
+# 허브 API 주소 (호스트 바인드에 맞춘다)
+Environment=HUB_URL=http://100.85.245.79:8420/api/v1
+# 인증은 요청별 X-API-Key 로 처리한다 (상시 키를 두지 않는다)
+ExecStart=/home/hyunu/.local/bin/uv run --project /home/hyunu/projects/service_hub/mcp-server hub-mcp --transport http --host 100.85.245.79 --port 8422
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

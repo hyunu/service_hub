@@ -38,6 +38,29 @@ MCP 클라이언트 설정(`HUB_URL`, `HUB_API_KEY`). 그 외에는 개입이 �
 
 변경은 `/srv/service-hub/.env` 수정 후 `docker compose up -d backend` 로 반영한다.
 
+## 2.1 MCP 연결 방식 (환경 독립)
+
+로컬(저장소 + uv)과 원격(HTTP) 두 가지가 있다. **어느 OpenCode 세션이든** 쓰려면 원격을 권장.
+
+| 방식 | 클라이언트 요구 | 설정 |
+|---|---|---|
+| local | 저장소, uv | `"type": "local"`, command/env |
+| **remote** | URL, API 키만 | `"type": "remote"`, url/headers |
+
+원격 서버 설치(서버에서 1회): `sudo ./mcp-server/deploy/install-remote.sh`
+
+```jsonc
+"n100-service-hub": {
+  "type": "remote",
+  "url": "http://100.85.245.79:8422/mcp",
+  "headers": { "X-API-Key": "hub_..." },
+  "enabled": true
+}
+```
+
+- 요청마다 키를 검증하며, 그 키로 허브를 호출한다(권한/폐기 정책 그대로).
+- 서버에는 상시 키를 저장하지 않는다.
+
 ## 3. 소스 동기화 (SSH 불필요)
 
 `hub_service_sync_source(service_id, path, exclude, dry_run, max_mb)`

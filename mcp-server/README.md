@@ -60,14 +60,33 @@ uv run hub-mcp --help
 uv run hub-mcp --print-config     # 위 형식의 설정을 출력
 ```
 
-### Streamable HTTP로 상주 실행
+### Streamable HTTP로 상주 실행 (권장: 저장소가 없는 환경)
+
+서버(N100)에서 MCP를 상주시키면 **클라이언트는 URL과 API 키만** 있으면 됩니다.
+uv·저장소·로컬 설정이 필요 없습니다.
 
 ```bash
-HUB_URL=http://127.0.0.1:8420/api/v1 HUB_API_KEY=hub_... \
-  uv run hub-mcp --transport http --host 127.0.0.1 --port 8422
+# 서버에서 1회 (sudo)
+sudo ./mcp-server/deploy/install-remote.sh
+# → http://100.85.245.79:8422/mcp
 ```
 
-기본 바인드는 루프백입니다. 외부에 열어야 한다면 방화벽/터널 정책을 먼저 확인하세요.
+클라이언트(어느 OpenCode든):
+
+```jsonc
+"n100-service-hub": {
+  "type": "remote",
+  "url": "http://100.85.245.79:8422/mcp",
+  "headers": { "X-API-Key": "hub_..." },
+  "enabled": true
+}
+```
+
+**인증**: 매 요청의 `X-API-Key`(또는 `Authorization: Bearer`)를 그대로 허브 호출에
+사용합니다. 키가 없으면 `401`, 폐기/권한 부족은 허브 정책을 그대로 따릅니다.
+서버에는 상시 API 키를 저장하지 않습니다.
+
+> tailnet 내부에서만 바인드합니다. 외부 노출이 필요하면 방화벽/터널 정책을 먼저 확인하세요.
 
 ## 4. 제공 도구
 
