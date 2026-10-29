@@ -113,6 +113,22 @@
     서비스 상태 **healthy** (asset-nest/flow-plan/pianosync/trade-console 모두 healthy).
   - trade-console compose/service.yaml 의 restart 정책도 `always` 로 맞추고 적용.
   - 테스트: `backend/tests/test_inventory_matching.py` 4건 추가 (backend 185 passed).
+- **원격 MCP(HTTP) 상주 — OpenCode 프로필 독립 (2026-10-24)**:
+  - 문제: MCP가 특정 Mac의 `~/.config/opencode/opencode.jsonc` 한 곳에만 등록되어,
+    같은 Mac의 다른 OpenCode 런타임(v2.2.1, 별도 설정)이나 저장소가 없는 환경에서는
+    `opencode mcp list`가 비어 있고 API는 401이었다.
+  - 해결: N100에 MCP를 HTTP 모드로 상주(systemd `hub-mcp`,
+    `--transport http --host 100.85.245.79 --port 8422`, `HUB_URL` 명시).
+    `RequireApiKeyMiddleware`가 매 요청의 `X-API-Key`(또는 Bearer)를 검증하고,
+    그 키를 ContextVar로 도구 컨텍스트에 전달해 허브 호출에 그대로 사용한다
+    (서버에 상시 키 저장 없음, clients의 scope/폐기 정책 유지).
+  - 클라이언트는 `"type": "remote"` + `url` + `headers.X-API-Key` 만으로 연결
+    (uv·저장소·로컬 경로 불필요).
+  - 실서버 검증: 키 없음 → 401, 키 포함 initialize 200, `tools/call hub_status` → ok,
+    systemd active, 100.85.245.79:8422 LISTEN(tailnet 한정). 이 Mac에서도 원격 호출 확인.
+  - 산출물: `mcp-server/deploy/hub-mcp.service`, `install-remote.sh`,
+    MCP README·UNATTENDED-DEPLOY 원격 연결 절차, MCP 테스트 +4(`test_http_auth.py`).
+  - 발급 키: `opencode-remote` (채팅 노출 → 필요 시 대시보드에서 폐기/재발급 권장).
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.
