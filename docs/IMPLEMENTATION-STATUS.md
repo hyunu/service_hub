@@ -141,8 +141,12 @@
   - UI Endpoints 탭 🔒 배지 + 참조 표시, CLI `service get` 인증 표기.
   - 기존 DB 보호: `endpoints`에 additive 컬럼 마이그레이션(`ALTER TABLE`, 멱등) + 테스트.
   - 테스트: backend +9(스펙·라운드트립·access·마이그레이션), CLI +2, MCP +2. 전체 게이트 통과.
-  - **N100 배포 대기** — 서버에서 `git pull --ff-only` + `docker compose up -d --build`,
-    이후 `gyeol` web 엔드포인트에 `auth` 참조를 기록해야 한다(핸드오프 문서 참고).
+  - **N100 배포 완료(2026-11-14)**: `cc0b11a` 기준 `docker compose up -d --build` +
+    `hub-mcp` 재시작. `hub-backend` healthy, `hub-frontend` 200, MCP 21개 도구 노출.
+    기존 서비스 컨테이너/볼륨/네트워크 무변경(스냅샷 diff·md5 동일), 감사 로그
+    `service.endpoint_auth_update`(`gyeol/web`) 기록. `gyeol` web은
+    `auth=basic`, `credentials_ref=operator://n100/gyeol/web-basic`으로 등록됨.
+    `.htpasswd`→entrypoint 생성 전환과 앱용 tailnet API 분리는 gyeol 프로젝트 후속 작업.
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.
