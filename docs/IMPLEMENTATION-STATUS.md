@@ -156,6 +156,9 @@
   - 예외: 긴급 롤백은 기존 스냅샷 재적용을 위해 `parse_spec(enforce_port_policy=False)`.
   - 기존 대역 밖 서비스(asset-nest 20001/20002, trade-engine 20101/20102,
     flow-plan 8780, gyeol 18080)는 다음 재배포 전에 50000번대로 이동해야 한다.
+  - **N100 배포 완료(2026-11-14, `d96b04e`)**: 18080 검증 → `422 host_port_out_of_range`,
+    50003 검증 → 200, `range=8000-9000` → `422 range_out_of_policy`,
+    기본 가용 후보 50003/50004/50005. 기존 서비스 컨테이너·볼륨·네트워크 무변경.
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.
