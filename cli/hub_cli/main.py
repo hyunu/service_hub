@@ -189,8 +189,16 @@ def cmd_service_show(args: argparse.Namespace) -> None:
         if eps:
             print("엔드포인트:")
             for e in eps:
+                auth = e.get("auth") or {}
+                auth_note = ""
+                if auth.get("type") and auth["type"] != "none":
+                    auth_note = f"  [인증 {auth['type']}"
+                    if auth.get("credentials_ref"):
+                        auth_note += f" · {auth['credentials_ref']}"
+                    auth_note += "]"
                 print(f"  - {e.get('name')}: {e.get('type')} {e.get('exposure')} "
-                      f"{e.get('hostname') or ''} -> {e.get('container')}:{e.get('container_port')}")
+                      f"{e.get('hostname') or ''} -> {e.get('container')}:{e.get('container_port')}"
+                      f"{auth_note}")
         warns = d.get("warnings", [])
         for w in warns:
             print(f"  [경고] {w}")

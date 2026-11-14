@@ -68,6 +68,10 @@
 - 모든 API 오류 응답에 Docker 소켓 경로, 호스트 파일 경로 등 내부 정보 미포함.
 - 배포 실행기는 작업 디렉터리 외 경로 접근 불가(경로 정규화 + 서비스 루트 제한).
 - service.yaml에 시크릿 필드 자체를 금지(스키마 검증 단계에서 차단).
+- 엔드포인트 인증은 `auth.type` + `credentials_ref`(위치 참조)만 허용한다. 비밀번호/토큰
+  **값**은 service.yaml·DB·API 응답·감사 로그에 저장/반환하지 않는다. 소비자는
+  `GET /services/{id}/access`/`hub_service_access`로 참조 위치만 확인하고, 실제 값은
+  서비스 `.env`(0600) 또는 운영자 비밀번호 관리 도구에서 얻는다.
 - 배포 실행 경로는 `HUB_ENABLE_DEPLOY` 기본 `false`로 잠긴다. 잠금 시 `POST /deployments`
   는 항상 `503 deploy_disabled`이며, 실행기 자체도 게이트를 재확인한다(방어 심층).
 - `docker_client.py`의 변경 함수(`compose_up`/`compose_down`)는 `allow_mutations=True`가

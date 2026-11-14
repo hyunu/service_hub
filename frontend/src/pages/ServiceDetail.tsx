@@ -9,6 +9,7 @@ import {
   GitBranch,
   HardDrive,
   Link2,
+  Lock,
   Pencil,
   RefreshCw,
   Rocket,
@@ -39,7 +40,7 @@ import {
   type ContainerListItem,
 } from "../lib/api";
 import { formatDateTime, formatRelative, formatPercent, formatBytesMb } from "../lib/format";
-import { EXPOSURE_LABEL, MANAGEMENT_LABEL, MANAGEMENT_VARIANT, SEVERITY_LABEL, SEVERITY_VARIANT, DEPLOYMENT_STATUS_LABEL, DEPLOYMENT_STATUS_VARIANT, containerStateLabel } from "../lib/labels";
+import { EXPOSURE_LABEL, AUTH_LABEL, MANAGEMENT_LABEL, MANAGEMENT_VARIANT, SEVERITY_LABEL, SEVERITY_VARIANT, DEPLOYMENT_STATUS_LABEL, DEPLOYMENT_STATUS_VARIANT, containerStateLabel } from "../lib/labels";
 import { PageHeader, LoadingState, ErrorState, EmptyState } from "../components/feedback";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
@@ -297,6 +298,15 @@ export default function ServiceDetail() {
                             {ep.host_port ? (
                               <Badge variant="outline">
                                 포트 {ep.host_port} → {ep.container_port ?? "—"}
+                              </Badge>
+                            ) : null}
+                            {ep.auth && ep.auth.type !== "none" ? (
+                              <Badge
+                                variant="outline"
+                                title={ep.auth.credentials_ref ?? ep.auth.hint ?? undefined}
+                              >
+                                <Lock className="mr-1 h-3 w-3" />
+                                {AUTH_LABEL[ep.auth.type] ?? ep.auth.type}
                               </Badge>
                             ) : null}
                           </div>
@@ -758,6 +768,7 @@ function ServiceEndpoints({ serviceId }: { serviceId: string }) {
             <TableHead>도메인</TableHead>
             <TableHead>컨테이너</TableHead>
             <TableHead>컨테이너 포트</TableHead>
+            <TableHead>인증</TableHead>
             <TableHead>상태</TableHead>
           </TableRow>
         </TableHeader>
@@ -783,6 +794,26 @@ function ServiceEndpoints({ serviceId }: { serviceId: string }) {
               </TableCell>
               <TableCell className="text-xs">{ep.container ?? "—"}</TableCell>
               <TableCell className="tabular-nums">{ep.container_port ?? "—"}</TableCell>
+              <TableCell className="text-xs">
+                {ep.auth && ep.auth.type !== "none" ? (
+                  <div className="flex flex-col gap-0.5">
+                    <Badge variant="outline">
+                      <Lock className="mr-1 h-3 w-3" />
+                      {AUTH_LABEL[ep.auth.type] ?? ep.auth.type}
+                    </Badge>
+                    {ep.auth.credentials_ref ? (
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {ep.auth.credentials_ref}
+                      </span>
+                    ) : null}
+                    {ep.auth.hint ? (
+                      <span className="text-[11px] text-muted-foreground">{ep.auth.hint}</span>
+                    ) : null}
+                  </div>
+                ) : (
+                  "—"
+                )}
+              </TableCell>
               <TableCell>
                 <Badge variant={ep.enabled === false ? "unknown" : "ok"}>
                   {ep.enabled === false ? "비활성" : "활성"}

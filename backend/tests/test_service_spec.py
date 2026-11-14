@@ -41,6 +41,46 @@ def test_secret_values_in_security_rejected():
         validate_spec_dict(bad)
 
 
+def _spec_with_auth(auth):
+    return {
+        **VALID,
+        "endpoints": [{
+            "name": "web", "type": "http", "exposure": "host", "host_port": 8080,
+            "container": "web", "container_port": 80, "auth": auth,
+        }],
+    }
+
+
+def test_endpoint_auth_reference_is_valid():
+    spec = validate_spec_dict(_spec_with_auth({
+        "type": "basic",
+        "credentials_ref": "1password://n100/sample-app/basic",
+        "hint": "운영자에게 요청",
+    }))
+    assert spec.endpoints[0].auth.type == "basic"
+    assert spec.endpoints[0].auth.credentials_ref.startswith("1password://")
+
+
+def test_endpoint_auth_requires_reference_when_enabled():
+    with pytest.raises(SpecError):
+        validate_spec_dict(_spec_with_auth({"type": "basic"}))
+
+
+def test_endpoint_auth_rejects_raw_secret_value():
+    """credentials_ref에는 값이 아니라 scheme:// 참조만 허용한다."""
+    with pytest.raises(SpecError):
+        validate_spec_dict(_spec_with_auth({
+            "type": "basic", "credentials_ref": "hunter2",
+        }))
+
+
+def test_endpoint_auth_none_rejects_reference():
+    with pytest.raises(SpecError):
+        validate_spec_dict(_spec_with_auth({
+            "type": "none", "credentials_ref": "1password://n100/app/basic",
+        }))
+
+
 def test_parse_spec_from_yaml(tmp_path):
     import yaml
     p = tmp_path / "service.yaml"

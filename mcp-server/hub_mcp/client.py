@@ -76,6 +76,9 @@ class HubClient:
     def post(self, path: str, payload: Any, timeout: float | None = None) -> Any:
         return self.request("POST", path, json=payload, timeout=timeout)
 
+    def patch(self, path: str, payload: Any, timeout: float | None = None) -> Any:
+        return self.request("PATCH", path, json=payload, timeout=timeout)
+
     def post_raw(self, path: str, body: bytes, content_type: str,
                  timeout: float | None = None) -> Any:
         """원시 본문 업로드 (tar.gz 등)."""

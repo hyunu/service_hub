@@ -212,6 +212,39 @@ def test_validate_rejects_secret_field(tmp_path):
     assert exc.value.code == 4
 
 
+def test_validate_accepts_auth_reference(tmp_path, capsys):
+    f = tmp_path / "service.yaml"
+    f.write_text(
+        "schema_version: 1\n"
+        "service: {id: x-app, name: X, description: Y, category: web}\n"
+        "deployment: {type: docker-compose, compose_file: compose.yaml}\n"
+        "endpoints:\n"
+        "  - {name: web, type: http, exposure: host, host_port: 8080,"
+        " container: web, container_port: 80,\n"
+        "     auth: {type: basic, credentials_ref: '1password://n100/x-app/basic'}}\n",
+        encoding="utf-8")
+    pytest.importorskip("yaml")
+    main(["service", "validate", str(f)])
+    assert "검증 통과" in capsys.readouterr().out
+
+
+def test_validate_rejects_raw_auth_value(tmp_path):
+    f = tmp_path / "service.yaml"
+    f.write_text(
+        "schema_version: 1\n"
+        "service: {id: x-app, name: X, description: Y, category: web}\n"
+        "deployment: {type: docker-compose, compose_file: compose.yaml}\n"
+        "endpoints:\n"
+        "  - {name: web, type: http, exposure: host, host_port: 8080,"
+        " container: web, container_port: 80,"
+        " auth: {type: basic, credentials_ref: 'hunter2'}}\n",
+        encoding="utf-8")
+    pytest.importorskip("yaml")
+    with pytest.raises(SystemExit) as exc:
+        main(["service", "validate", str(f)])
+    assert exc.value.code == 4
+
+
 def test_orphan_list_render(capsys, stub_server, monkeypatch):
     url = stub_server({"/api/v1/orphans": (200, {"items": [{
         "name": "rogue", "container_id_short": "abc123", "image": "nginx:latest",

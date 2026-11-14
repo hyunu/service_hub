@@ -41,6 +41,8 @@ server = MCPServer(
         "hub_deploy_apply(service_id, confirmed=true) → hub_deploy_status. "
         "실패 시 자동 롤백(HUB_DEPLOY_AUTO_ROLLBACK) 또는 hub_deploy_rollback. "
         "배포 전에 hub_deployment_guide 로 사전조건·오류를 확인하라. "
+        "서비스에 접속할 때는 hub_service_access 로 URL·인증 방식·자격 증명 "
+        "참조를 먼저 확인하라(비밀값은 반환되지 않는다). "
         "원격(HTTP) 모드는 요청마다 X-API-Key 가 필요하다."
     ),
 )
@@ -119,6 +121,35 @@ def hub_services_list(search: str | None = None, status: str | None = None,
 def hub_service_get(service_id: str) -> dict:
     """서비스 상세(컴포넌트/엔드포인트/컨테이너/상태)를 반환한다."""
     return _run(lambda: _client().get(f"/services/{service_id}"))
+
+
+@server.tool()
+def hub_service_access(service_id: str) -> dict:
+    """서비스 접속 정보(URL·인증 방식·자격 증명 참조)를 반환한다.
+
+    엔드포인트에 인증이 걸려 있으면 ``auth.type`` 과 ``auth.credentials_ref`` 를
+    확인한다. **비밀번호/토큰 값은 반환하지 않는다** — 참조 위치에서 운영자
+    절차로 얻어야 한다. 추측으로 우회하지 말고 이 값을 사용하라.
+    """
+    return _run(lambda: _client().get(f"/services/{service_id}/access"))
+
+
+@server.tool()
+def hub_service_set_endpoint_auth(service_id: str, endpoint_name: str,
+                                  auth: dict) -> dict:
+    """엔드포인트 인증 메타데이터를 기록한다 (컨테이너/포트/런타임 무변경).
+
+    Args:
+        service_id: 서비스 ID
+        endpoint_name: service.yaml의 endpoints[].name
+        auth: {"type": "basic|bearer|api_key|mtls|none",
+               "credentials_ref": "1password://...", "hint": "..."}
+            ``credentials_ref``는 **위치 참조**만 허용한다. 비밀번호/토큰 값을
+            넣으면 422로 거부된다. ``type=none``이면 참조를 비운다.
+    """
+    return _run(lambda: _client().patch(
+        f"/services/{service_id}/endpoints/{endpoint_name}/auth",
+        {"auth": auth}))
 
 
 @server.tool()

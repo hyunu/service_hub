@@ -147,3 +147,82 @@ def test_validate_spec_endpoint_reports_errors(client):
 def test_validate_spec_endpoint_requires_auth(anon_client):
     r = anon_client.post("/api/v1/services/validate", json={"schema_version": 1})
     assert r.status_code in (401, 403)
+
+
+AUTH_SERVICE = {
+    "id": "auth-app",
+    "name": "Auth App",
+    "description": "인증 메타데이터 테스트",
+    "category": "web",
+    "deployment_path": "/srv/services/auth-app",
+    "compose_file": "compose.yaml",
+    "endpoints": [{
+        "name": "web", "type": "http", "exposure": "host", "host_port": 18080,
+        "container": "web", "container_port": 80,
+        "auth": {"type": "basic",
+                 "credentials_ref": "1password://n100/auth-app/basic",
+                 "hint": "운영자에게 요청"},
+    }],
+}
+
+AUTH_EXPECTED = {"type": "basic",
+                 "credentials_ref": "1password://n100/auth-app/basic",
+                 "hint": "운영자에게 요청"}
+
+
+def test_endpoint_auth_metadata_roundtrip(client):
+    r = mutate(client, "POST", "/api/v1/services", json=AUTH_SERVICE)
+    assert r.status_code == 201, r.text
+
+    detail = client.get("/api/v1/services/auth-app").json()
+    assert detail["endpoints"][0]["auth"] == AUTH_EXPECTED
+
+    items = client.get("/api/v1/services/auth-app/endpoints").json()["items"]
+    assert items[0]["auth"] == AUTH_EXPECTED
+
+
+def test_endpoint_auth_can_be_updated_later(client):
+    """기존 서비스도 auth 참조를 나중에 기록할 수 있다 (런타임 무변경)."""
+    payload = {**VALID_SERVICE, "id": "legacy-app", "name": "Legacy",
+               "endpoints": [{"name": "web", "type": "http", "exposure": "host",
+                              "host_port": 18080, "container": "frontend",
+                              "container_port": 80}]}
+    mutate(client, "POST", "/api/v1/services", json=payload)
+    r = mutate(client, "PATCH", "/api/v1/services/legacy-app/endpoints/web/auth",
+               json={"auth": {"type": "basic",
+                              "credentials_ref": "operator://ask-admin",
+                              "hint": "운영자에게 요청"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["auth"]["type"] == "basic"
+
+    detail = client.get("/api/v1/services/legacy-app").json()
+    assert detail["endpoints"][0]["auth"]["credentials_ref"] == "operator://ask-admin"
+
+
+def test_endpoint_auth_update_rejects_raw_value(client):
+    mutate(client, "POST", "/api/v1/services", json=AUTH_SERVICE)
+    r = mutate(client, "PATCH", "/api/v1/services/auth-app/endpoints/web/auth",
+               json={"auth": {"type": "basic", "credentials_ref": "hunter2"}})
+    assert r.status_code == 422
+
+
+def test_service_access_resolves_url_and_auth(client):
+    mutate(client, "POST", "/api/v1/services", json=AUTH_SERVICE)
+    r = client.get("/api/v1/services/auth-app/access",
+                   headers={"X-Forwarded-Host": "100.85.245.79"})
+    assert r.status_code == 200, r.text
+    ep = r.json()["endpoints"][0]
+    assert ep["url"] == "http://100.85.245.79:18080"
+    assert ep["reachable"] is True
+    assert ep["auth"] == AUTH_EXPECTED
+
+
+def test_service_access_internal_endpoint_has_no_url(client):
+    payload = {**VALID_SERVICE, "id": "internal-app", "name": "Internal",
+               "endpoints": [{"name": "api", "type": "http", "exposure": "internal",
+                              "container": "backend", "container_port": 8000}]}
+    mutate(client, "POST", "/api/v1/services", json=payload)
+    ep = client.get("/api/v1/services/internal-app/access").json()["endpoints"][0]
+    assert ep["url"] is None
+    assert ep["reachable"] is False
+    assert ep["auth"]["type"] == "none"

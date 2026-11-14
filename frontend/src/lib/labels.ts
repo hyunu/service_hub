@@ -34,6 +34,16 @@ export const EXPOSURE_LABEL: Record<string, string> = {
   host: "호스트",
 };
 
+/** 엔드포인트 인증 방식 */
+export const AUTH_LABEL: Record<string, string> = {
+  none: "없음",
+  basic: "Basic",
+  bearer: "Bearer",
+  api_key: "API 키",
+  mtls: "mTLS",
+  custom: "사용자 정의",
+};
+
 /** 이벤트 심각도 */
 export const SEVERITY_LABEL: Record<string, string> = {
   info: "정보",

@@ -129,6 +129,20 @@
   - 산출물: `mcp-server/deploy/hub-mcp.service`, `install-remote.sh`,
     MCP README·UNATTENDED-DEPLOY 원격 연결 절차, MCP 테스트 +4(`test_http_auth.py`).
   - 발급 키: `opencode-remote` (채팅 노출 → 필요 시 대시보드에서 폐기/재발급 권장).
+- **엔드포인트 인증 메타데이터 (2026-11-14)**:
+  - 배경: 다른 프로젝트(AI)가 N100 배포 서비스에 붙을 때 "Basic Auth 필요"를 알 방법이 없어
+    무인증 401 → Mac API로 우회했다. 허브는 포트만 노출하고 인증/자격 증명 위치를 표현하지 못했다.
+  - `service.yaml` `endpoints[].auth`(`type`/`credentials_ref`/`hint`) 추가. 값이 아니라
+    `scheme://...` **참조만** 허용하고 비밀번호/토큰 값은 422로 거부한다.
+  - `GET /services/{id}/access`: 요청 호스트 기준 URL + 인증 방식 + 참조 + `reachable`.
+    `PATCH /services/{id}/endpoints/{name}/auth`: 기존 서비스 메타데이터만 갱신(런타임 무변경, 감사 로그).
+  - MCP `hub_service_access` / `hub_service_set_endpoint_auth` 추가(도구 21개).
+    AI는 URL·인증·참조를 먼저 확인하고 추측 우회하지 않는다. 비밀값은 반환하지 않는다.
+  - UI Endpoints 탭 🔒 배지 + 참조 표시, CLI `service get` 인증 표기.
+  - 기존 DB 보호: `endpoints`에 additive 컬럼 마이그레이션(`ALTER TABLE`, 멱등) + 테스트.
+  - 테스트: backend +9(스펙·라운드트립·access·마이그레이션), CLI +2, MCP +2. 전체 게이트 통과.
+  - **N100 배포 대기** — 서버에서 `git pull --ff-only` + `docker compose up -d --build`,
+    이후 `gyeol` web 엔드포인트에 `auth` 참조를 기록해야 한다(핸드오프 문서 참고).
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.

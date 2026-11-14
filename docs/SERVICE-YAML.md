@@ -61,6 +61,11 @@ endpoints:
     exposure: internal          # proxy | host | internal
     container: app
     container_port: 3000
+    # 인증이 필요하면 값이 아니라 '어디서 얻는지'만 적습니다.
+    # auth:
+    #   type: basic              # none | basic | bearer | api_key | mtls
+    #   credentials_ref: 1password://n100/my-app/basic
+    #   hint: 운영자에게 자격 증명 요청
 containers:
   - name: app
     role: backend
@@ -105,6 +110,9 @@ security:
 | `endpoints[].host_port` |  | int | `host`일 때 필수 |
 | `endpoints[].container` |  | string | 대상 compose 서비스명 |
 | `endpoints[].container_port` |  | int | 1~65535 |
+| `endpoints[].auth.type` |  | string | none, basic, bearer, api_key, mtls, custom |
+| `endpoints[].auth.credentials_ref` |  | string | 자격 증명 **위치** 참조. `type!=none`이면 필수 |
+| `endpoints[].auth.hint` |  | string | 사람이 읽는 안내(한 줄) |
 | `containers[].name` |  | string | **compose 서비스명과 동일** |
 | `containers[].role` |  | string | frontend, backend, worker, database, cache, proxy, other |
 | `containers[].required` |  | bool | 배포 후 기동 필수 (기본 true) |
@@ -122,10 +130,29 @@ security:
 
 1. 정의되지 않은 필드는 거부됩니다(오타 방지).
 2. **시크릿 값을 service.yaml에 쓰면 거부**됩니다. `required_env`에는 이름만 적고 실제 값은 `.env`에 둡니다(Git 커밋 금지).
-3. `schema_version`이 1이 아니면 거부합니다.
-4. `exposure=proxy`에는 `hostname`, `host`에는 `host_port`가 필요합니다.
-5. `containers[].name`이 compose 서비스명과 다르면 계획/배포 검증이 어긋납니다.
-6. 배포 경로는 `/srv/services/<service.id>`로 고정입니다. `deployment_path`는 표시용 메타데이터입니다.
+3. `auth.credentials_ref`는 `scheme://...` 형식(예: `1password://n100/app/basic`)만 허용합니다.
+   비밀번호/토큰 **값**을 넣으면 거부됩니다. `auth.type=none`에는 `credentials_ref`/`hint`를 둘 수 없습니다.
+4. `schema_version`이 1이 아니면 거부합니다.
+5. `exposure=proxy`에는 `hostname`, `host`에는 `host_port`가 필요합니다.
+6. `containers[].name`이 compose 서비스명과 다르면 계획/배포 검증이 어긋납니다.
+7. 배포 경로는 `/srv/services/<service.id>`로 고정입니다. `deployment_path`는 표시용 메타데이터입니다.
+
+### 인증 메타데이터
+
+허브는 **값이 아니라 참조**만 저장합니다. 소비자(AI/앱)는
+`GET /api/v1/services/<id>/access` 또는 MCP `hub_service_access`로
+접속 URL과 `auth.type`·`credentials_ref`를 확인합니다. 실제 값은
+`.env`(0600, Git 제외)나 운영자 비밀번호 관리 도구에서 얻습니다.
+
+```yaml
+auth:
+  type: basic
+  credentials_ref: 1password://n100/my-app/basic
+  hint: 운영자에게 자격 증명 요청
+```
+
+이미 등록된 서비스는 `PATCH /api/v1/services/<id>/endpoints/<name>/auth`로
+인증 메타데이터만 나중에 갱신할 수 있습니다(컨테이너/포트/런타임 무변경).
 
 ## 6. 검증·계획·배포
 

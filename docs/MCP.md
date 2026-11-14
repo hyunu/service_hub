@@ -29,7 +29,7 @@ sudo systemctl restart hub-mcp
 sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
-## 2. 도구 (17개)
+## 2. 도구 (21개)
 
 ### 조회
 | 도구 | 설명 |
@@ -37,11 +37,13 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 | `hub_status` | 허브/도커/모니터 상태 요약 |
 | `hub_services_list` | 서비스 목록(검색/상태 필터) |
 | `hub_service_get` | 서비스 상세 |
+| `hub_service_access` | **접속 URL·인증 방식·자격 증명 참조** (비밀값 미반환) |
 | `hub_containers_list` | 컨테이너 목록(상태/관리 필터) |
 | `hub_orphans_list` | 미관리 컨테이너 |
 | `hub_ports_list` | 포트 레지스트리/예약 |
 | `hub_service_logs` | 서비스 소속 컨테이너 로그 |
 | `hub_service_spec_guide` | **service.yaml 예시·필드·규칙** |
+| `hub_deployment_guide` | 배포 모델·사전조건·오류·안전 안내 |
 | `hub_deployments_list` | 배포 이력 |
 | `hub_deploy_status` | 배포 단계/상태 |
 
@@ -50,7 +52,9 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 |---|---|
 | `hub_service_validate` | service.yaml 스키마 검증 (변경 없음) |
 | `hub_service_scaffold` | `/srv/services/<id>/{service.yaml,compose.yaml}` 생성 |
+| `hub_service_sync_source` | 소스 디렉터리를 배포 디렉터리로 업로드 (SSH 불필요) |
 | `hub_service_register` | 서비스 레지스트리(DB) 등록 |
+| `hub_service_set_endpoint_auth` | 엔드포인트 인증 메타데이터(참조) 기록 |
 | `hub_orphans_attach` | 미관리 컨테이너 수동 그룹핑 |
 | `hub_deploy_plan` | 배포 계획 (컨테이너 무변경) |
 | `hub_deploy_apply` | 배포 실행 (`confirmed=true`, 게이트 필요) |

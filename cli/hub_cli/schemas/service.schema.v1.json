@@ -58,7 +58,56 @@
           "hostname": { "type": "string", "description": "exposure=proxy일 때 필요" },
           "host_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
           "container": { "type": "string", "minLength": 1 },
-          "container_port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          "container_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "auth": {
+            "type": "object",
+            "description": "인증 요구 사항. 시크릿 값이 아니라 '어디서 얻는지' 참조만 기록한다.",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["none", "basic", "bearer", "api_key", "mtls", "custom"],
+                "default": "none"
+              },
+              "credentials_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "pattern": "^[a-z0-9][a-z0-9+.-]*://\\S+$",
+                "description": "자격 증명 위치. 예: 1password://n100/gyeol/basic, operator://ask-admin"
+              },
+              "hint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "사람이 읽는 안내. 비밀번호/토큰 값 금지."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": { "enum": ["basic", "bearer", "api_key", "mtls", "custom"] }
+                  },
+                  "required": ["type"]
+                },
+                "then": { "required": ["credentials_ref"] }
+              },
+              {
+                "if": {
+                  "properties": { "type": { "const": "none" } },
+                  "required": ["type"]
+                },
+                "then": {
+                  "allOf": [
+                    { "not": { "required": ["credentials_ref"] } },
+                    { "not": { "required": ["hint"] } }
+                  ]
+                }
+              }
+            ]
+          }
         },
         "allOf": [
           {

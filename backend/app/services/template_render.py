@@ -29,6 +29,11 @@ endpoints:
     exposure: internal
     container: app
     container_port: 3000
+    # 인증이 필요하면 값이 아니라 '어디서 얻는지'만 적는다.
+    # auth:
+    #   type: basic
+    #   credentials_ref: 1password://n100/{{ID}}/basic
+    #   hint: 운영자에게 자격 증명 요청
 containers:
   - name: app
     role: backend

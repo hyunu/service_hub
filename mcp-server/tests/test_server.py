@@ -12,7 +12,8 @@ def test_tools_are_exposed():
     tools = asyncio.run(srv.server.list_tools())
     names = {t.name for t in tools}
     required = {
-        "hub_status", "hub_services_list", "hub_service_get", "hub_service_register",
+        "hub_status", "hub_services_list", "hub_service_get", "hub_service_access",
+        "hub_service_set_endpoint_auth", "hub_service_register",
         "hub_containers_list", "hub_orphans_list", "hub_orphans_attach",
         "hub_ports_list", "hub_service_logs", "hub_deploy_plan", "hub_deploy_apply",
         "hub_deploy_status",
@@ -39,6 +40,10 @@ class FakeClient:
     def post(self, path, payload, timeout=None):
         self.created.append({"path": path, "payload": payload})
         return {"deployment_id": "dep-1", "status": "succeeded"}
+
+    def patch(self, path, payload):
+        self.created.append({"path": path, "payload": payload})
+        return {"name": "web", "auth": payload["auth"]}
 
     def post_raw(self, path, body, content_type, timeout=None):
         self.created.append({"path": path, "bytes": len(body),
@@ -73,6 +78,24 @@ def test_register_creates_service(fake):
     assert out["ok"] is True
     assert fake.created[0]["id"] == "my-app"
     assert out["data"]["service"]["status"] == "registered"
+
+
+def test_service_access_calls_access_endpoint(fake):
+    out = srv.hub_service_access("gyeol")
+    assert out["ok"] is True
+    assert out["data"]["path"] == "/services/gyeol/access"
+
+
+def test_service_set_endpoint_auth_calls_patch(fake):
+    out = srv.hub_service_set_endpoint_auth(
+        "gyeol", "web",
+        {"type": "basic", "credentials_ref": "1password://n100/gyeol/basic"})
+    assert out["ok"] is True
+    assert fake.created[-1] == {
+        "path": "/services/gyeol/endpoints/web/auth",
+        "payload": {"auth": {"type": "basic",
+                             "credentials_ref": "1password://n100/gyeol/basic"}},
+    }
 
 
 def test_deploy_apply_requires_confirmation(fake):

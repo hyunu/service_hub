@@ -111,6 +111,10 @@ class Endpoint(Base):
     host_port: Mapped[int | None] = mapped_column(Integer)
     container: Mapped[str] = mapped_column(String(120))
     container_port: Mapped[int] = mapped_column(Integer)
+    # 인증 메타데이터 — 값이 아니라 참조만 저장한다 (service.yaml 규칙과 동일).
+    auth_type: Mapped[str] = mapped_column(String(16), default="none")
+    credentials_ref: Mapped[str | None] = mapped_column(String(300))
+    auth_hint: Mapped[str | None] = mapped_column(String(300))
 
     service: Mapped[Service] = relationship(back_populates="endpoints")
 

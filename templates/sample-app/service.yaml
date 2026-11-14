@@ -23,6 +23,11 @@ endpoints:
     hostname: sample.home      # 내부 DNS/hosts 설정이 필요합니다 (자동 동작하지 않음)
     container: frontend
     container_port: 3000
+    # 인증이 필요하면 값이 아니라 '어디서 얻는지'만 적는다 (비밀번호/토큰 금지).
+    # auth:
+    #   type: basic
+    #   credentials_ref: 1password://n100/sample-app/basic
+    #   hint: 운영자에게 자격 증명 요청
 containers:
   - name: frontend
     role: frontend

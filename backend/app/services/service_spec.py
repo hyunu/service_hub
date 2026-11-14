@@ -5,6 +5,7 @@ Pydantic으로 검증한다. 시크릿 값은 service.yaml에 넣지 않는다 �
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 SUPPORTED_SCHEMA_VERSIONS = {1}
 SERVICE_ID_RE = r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
+# 자격 증명은 값이 아니라 위치 참조만 허용한다 (예: 1password://..., operator://...).
+CREDENTIALS_REF_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]*://\S+$")
 
 
 class SpecError(Exception):
@@ -48,6 +51,45 @@ class DeploymentInfo(_Strict):
     project_name: str | None = None
 
 
+class EndpointAuth(_Strict):
+    """엔드포인트 인증 메타데이터 — 값이 아니라 참조만 담는다.
+
+    소비자(AI/앱/사람)가 "인증이 필요한가, 어디서 자격 증명을 얻는가"를
+    허브 메타데이터만 보고 알 수 있게 한다. 실제 비밀번호/토큰은 여기 넣지 않는다.
+    """
+
+    type: Literal["none", "basic", "bearer", "api_key", "mtls", "custom"] = "none"
+    credentials_ref: str | None = Field(default=None, max_length=300)
+    hint: str | None = Field(default=None, max_length=300)
+
+    @field_validator("credentials_ref")
+    @classmethod
+    def _ref_only(cls, v: str | None):
+        if v is None:
+            return v
+        if not CREDENTIALS_REF_RE.match(v):
+            raise ValueError(
+                "credentials_ref는 'scheme://...' 형식의 위치 참조여야 합니다 "
+                "(예: 1password://n100/app/basic). 비밀번호/토큰 값을 넣지 마세요")
+        return v
+
+    @field_validator("hint")
+    @classmethod
+    def _hint_no_control(cls, v: str | None):
+        if v is not None and ("\n" in v or "\r" in v):
+            raise ValueError("hint는 한 줄이어야 합니다")
+        return v
+
+    @model_validator(mode="after")
+    def _check_consistency(self):
+        if self.type == "none":
+            if self.credentials_ref or self.hint:
+                raise ValueError("auth.type=none에는 credentials_ref/hint를 둘 수 없습니다")
+        elif not self.credentials_ref:
+            raise ValueError("auth.type이 none이 아니면 credentials_ref가 필요합니다")
+        return self
+
+
 class Endpoint(_Strict):
     name: str = Field(min_length=1)
     type: Literal["http", "https", "tcp", "udp", "grpc"] = "http"
@@ -56,6 +98,7 @@ class Endpoint(_Strict):
     host_port: int | None = Field(default=None, ge=1, le=65535)
     container: str = Field(min_length=1)
     container_port: int = Field(ge=1, le=65535)
+    auth: EndpointAuth = Field(default_factory=EndpointAuth)
 
     @model_validator(mode="after")
     def _check_exposure(self):

@@ -48,6 +48,35 @@ def init_db() -> None:
     from . import models  # noqa: F401 — 모델 등록
 
     Base.metadata.create_all(bind=get_engine())
+    _ensure_additive_columns()
+
+
+# 추가 전용(additive) 컬럼 목록. SQLite의 create_all은 기존 테이블에 컬럼을
+# 추가하지 않으므로, 기존 설치를 깨지 않도록 여기서 ALTER TABLE을 수행한다.
+# 삭제/타입 변경은 하지 않는다 — 파괴적 마이그레이션은 수동 절차로 남긴다.
+_ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
+    "endpoints": {
+        "auth_type": "VARCHAR(16) DEFAULT 'none'",
+        "credentials_ref": "VARCHAR(300)",
+        "auth_hint": "VARCHAR(300)",
+    },
+}
+
+
+def _ensure_additive_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    engine = get_engine()
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, columns in _ADDITIVE_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in columns.items():
+                if name not in present:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def session_scope() -> Iterator[Session]:

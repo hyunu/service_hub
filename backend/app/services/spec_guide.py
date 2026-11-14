@@ -15,6 +15,7 @@ CATEGORIES = ["web", "backend", "database", "ai", "automation", "media", "dev",
 CONTAINER_ROLES = ["frontend", "backend", "worker", "database", "cache", "proxy", "other"]
 ENDPOINT_TYPES = ["http", "https", "tcp", "udp", "grpc"]
 EXPOSURES = ["proxy", "host", "internal"]
+AUTH_TYPES = ["none", "basic", "bearer", "api_key", "mtls", "custom"]
 RESTART_POLICIES = ["no", "always", "unless-stopped", "on-failure"]
 
 MINIMAL_EXAMPLE = """\
@@ -73,6 +74,13 @@ FIELDS: list[dict] = [
     _f("endpoints[].host_port", False, "int", "exposure=host일 때 필수", "1~65535"),
     _f("endpoints[].container", False, "string", "대상 컨테이너(compose 서비스명)", None),
     _f("endpoints[].container_port", False, "int", "컨테이너 내부 포트", "1~65535"),
+    _f("endpoints[].auth.type", False, "string",
+       "인증 방식. 소비자가 접속 전에 확인한다", ", ".join(AUTH_TYPES)),
+    _f("endpoints[].auth.credentials_ref", False, "string",
+       "자격 증명 위치 참조(`scheme://...`). type!=none이면 필수",
+       "예: 1password://n100/app/basic, operator://ask-admin"),
+    _f("endpoints[].auth.hint", False, "string",
+       "사람이 읽는 안내. 비밀번호/토큰 값 금지", "1~300자, 한 줄"),
     _f("containers[].name", False, "string",
        "**compose 서비스명과 동일**해야 상태/배포 검증이 맞음", None),
     _f("containers[].role", False, "string", "컨테이너 역할", ", ".join(CONTAINER_ROLES)),
@@ -98,6 +106,8 @@ RULES: list[str] = [
     " 실제 값은 서비스 디렉터리의 `.env`에 넣습니다(Git 커밋 금지).",
     "`schema_version`은 1만 지원합니다. 다른 값은 임의 해석하지 않고 거부합니다.",
     "`endpoints[].exposure=proxy`면 `hostname`이, `host`면 `host_port`가 필요합니다.",
+    "인증이 필요한 엔드포인트는 `auth`에 **어디서 자격 증명을 얻는지**(credentials_ref)만"
+    " 적습니다. 비밀번호/토큰 값은 service.yaml·Git·채팅에 쓰지 마세요.",
     "`containers[].name`은 compose의 서비스명과 같아야 계획/배포 검증이 정확합니다.",
     "파일 위치는 `/srv/services/<service.id>/service.yaml` 고정입니다"
     " (배포 실행기가 이 경로만 읽습니다).",
@@ -125,6 +135,7 @@ def guide() -> dict:
             "container_role": CONTAINER_ROLES,
             "endpoint_type": ENDPOINT_TYPES,
             "exposure": EXPOSURES,
+            "auth_type": AUTH_TYPES,
             "restart_policy": RESTART_POLICIES,
         },
         "docs": "docs/SERVICE-YAML.md",

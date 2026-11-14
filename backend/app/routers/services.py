@@ -18,6 +18,7 @@ from ..models import (Container, ContainerAssignment, Endpoint, PortReservation,
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit, record_event
 from ..services.grouping import bulk_attach
+from ..services.service_spec import EndpointAuth
 
 router = APIRouter(prefix="/services", tags=["services"],
                    dependencies=[Depends(require_auth)])
@@ -41,6 +42,7 @@ class EndpointIn(BaseModel):
     host_port: int | None = None
     container: str
     container_port: int
+    auth: EndpointAuth = Field(default_factory=EndpointAuth)
 
 
 class ServiceCreate(BaseModel):
@@ -108,6 +110,10 @@ class ServicePatch(BaseModel):
     version: str | None = None
 
 
+class EndpointAuthPatch(BaseModel):
+    auth: EndpointAuth
+
+
 def _validate(body_id: str, category: str) -> None:
     if not SERVICE_ID_RE.match(body_id):
         raise HubError(status_code=422,
@@ -142,6 +148,23 @@ def _cpu_mem_for(db: Session, service_id: str) -> tuple[float | None, float | No
     return row.cpu_percent, row.mem_used_mb
 
 
+def _endpoint_auth(e: Endpoint) -> dict:
+    return {
+        "type": e.auth_type or "none",
+        "credentials_ref": e.credentials_ref,
+        "hint": e.auth_hint,
+    }
+
+
+def _endpoint_dict(e: Endpoint) -> dict:
+    return {
+        "name": e.name, "type": e.type, "exposure": e.exposure,
+        "hostname": e.hostname, "host_port": e.host_port,
+        "container": e.container, "container_port": e.container_port,
+        "auth": _endpoint_auth(e),
+    }
+
+
 def _summary(db: Session, svc: Service) -> dict:
     rows = _container_rows(db, svc.id)
     cpu, mem = _cpu_mem_for(db, svc.id)
@@ -153,10 +176,7 @@ def _summary(db: Session, svc: Service) -> dict:
             "running": sum(1 for r in rows if r.state == "running"),
             "stopped": sum(1 for r in rows if r.state != "running"),
         },
-        "endpoints": [{"name": e.name, "type": e.type, "exposure": e.exposure,
-                       "hostname": e.hostname, "host_port": e.host_port,
-                       "container": e.container, "container_port": e.container_port}
-                      for e in svc.endpoints],
+        "endpoints": [_endpoint_dict(e) for e in svc.endpoints],
         "cpu_percent": cpu, "memory_mb": mem,
         "last_deployed_at": svc.last_deployed_at,
     }
@@ -206,7 +226,8 @@ def create_service(body: ServiceCreate, db: Session = Depends(get_db),
                                 code="hostname_required")
         db.add(Endpoint(service_id=body.id, name=ep.name, type=ep.type, exposure=ep.exposure,
                         hostname=ep.hostname, host_port=ep.host_port, container=ep.container,
-                        container_port=ep.container_port))
+                        container_port=ep.container_port, auth_type=ep.auth.type,
+                        credentials_ref=ep.auth.credentials_ref, auth_hint=ep.auth.hint))
     record_audit(db, actor, "service.create", target=body.id)
     db.commit()
     return _summary(db, svc)
@@ -518,10 +539,58 @@ def auto_attach(service_id: str, body: AutoAttachRequest | None = None,
 @router.get("/{service_id}/endpoints")
 def service_endpoints(service_id: str, db: Session = Depends(get_db)):
     svc = _service_or_404(db, service_id)
-    return {"items": [{"name": e.name, "type": e.type, "exposure": e.exposure,
-                       "hostname": e.hostname, "host_port": e.host_port,
-                       "container": e.container, "container_port": e.container_port}
-                      for e in svc.endpoints]}
+    return {"items": [_endpoint_dict(e) for e in svc.endpoints]}
+
+
+@router.patch("/{service_id}/endpoints/{endpoint_name}/auth")
+def update_endpoint_auth(service_id: str, endpoint_name: str, body: EndpointAuthPatch,
+                         db: Session = Depends(get_db),
+                         actor: str = Depends(get_read_actor)):
+    """엔드포인트 인증 메타데이터만 갱신한다 (컨테이너/포트/런타임 무변경).
+
+    기존에 등록된 서비스도 값이 아닌 참조(`credentials_ref`)를 기록할 수 있다.
+    """
+    _service_or_404(db, service_id)
+    ep = db.execute(select(Endpoint).where(
+        Endpoint.service_id == service_id,
+        Endpoint.name == endpoint_name)).scalar_one_or_none()
+    if ep is None:
+        raise HubError(status_code=404,
+                       detail=f"엔드포인트 '{endpoint_name}'를 찾을 수 없습니다",
+                       code="endpoint_not_found")
+    ep.auth_type = body.auth.type
+    ep.credentials_ref = body.auth.credentials_ref
+    ep.auth_hint = body.auth.hint
+    record_audit(db, actor, "service.endpoint_auth_update",
+                 target=f"{service_id}/{endpoint_name}")
+    db.commit()
+    return _endpoint_dict(ep)
+
+
+@router.get("/{service_id}/access")
+def service_access(service_id: str, request: Request, db: Session = Depends(get_db)):
+    """소비자(AI/앱)용 접속 정보 — URL + 인증 방식 + 자격 증명 참조.
+
+    비밀번호/토큰 값은 절대 반환하지 않는다. URL은 요청이 들어온 호스트를
+    기준으로 계산한다(프록시 뒤에서는 X-Forwarded-Host를 우선).
+    """
+    svc = _service_or_404(db, service_id)
+    forwarded = request.headers.get("x-forwarded-host", "")
+    host = forwarded.split(",")[0].strip() or request.url.hostname or "localhost"
+    items = []
+    for e in svc.endpoints:
+        scheme = "https" if e.type == "https" else "http"
+        url: str | None = None
+        if e.exposure == "proxy" and e.hostname:
+            url = f"{scheme}://{e.hostname}"
+        elif e.exposure == "host" and e.host_port:
+            url = f"{scheme}://{host}:{e.host_port}"
+        items.append({
+            **_endpoint_dict(e),
+            "url": url,
+            "reachable": url is not None,
+        })
+    return {"service_id": service_id, "endpoints": items}
 
 
 @router.get("/{service_id}/logs")

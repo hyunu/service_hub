@@ -180,6 +180,13 @@ export interface HubSettings {
 
 /* --------------------------- 서비스 ------------------------------- */
 
+export interface EndpointAuth {
+  type: "none" | "basic" | "bearer" | "api_key" | "mtls" | "custom";
+  /** 값이 아니라 위치 참조 (예: 1password://n100/app/basic) */
+  credentials_ref?: string | null;
+  hint?: string | null;
+}
+
 export interface ServiceEndpoint {
   name: string;
   type: string;
@@ -190,6 +197,7 @@ export interface ServiceEndpoint {
   container: string | null;
   container_port: number | null;
   enabled?: boolean;
+  auth?: EndpointAuth | null;
 }
 
 export interface ServiceListItem {
