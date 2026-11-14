@@ -28,6 +28,9 @@ endpoints:
     #   type: basic
     #   credentials_ref: 1password://n100/sample-app/basic
     #   hint: 운영자에게 자격 증명 요청
+    # api_base_path: /api/v1
+    # health_path: /healthz
+    # docs_url: https://example.com/docs
 containers:
   - name: frontend
     role: frontend

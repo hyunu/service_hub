@@ -84,6 +84,13 @@ FIELDS: list[dict] = [
        "예: 1password://n100/app/basic, operator://ask-admin"),
     _f("endpoints[].auth.hint", False, "string",
        "사람이 읽는 안내. 비밀번호/토큰 값 금지", "1~300자, 한 줄"),
+    _f("endpoints[].auth.header", False, "string",
+       "bearer/api_key/custom 인증 헤더 이름", "예: X-User-Id"),
+    _f("endpoints[].api_base_path", False, "string", "API 기본 경로", "예: /api/v1"),
+    _f("endpoints[].health_path", False, "string", "헬스체크 경로", "예: /healthz"),
+    _f("endpoints[].docs_url", False, "string", "문서/OpenAPI URL", "http(s)://"),
+    _f("endpoints[].bind_addr", False, "string",
+       "호스트 바인드 주소(정보용)", "예: 100.85.245.79, 0.0.0.0"),
     _f("containers[].name", False, "string",
        "**compose 서비스명과 동일**해야 상태/배포 검증이 맞음", None),
     _f("containers[].role", False, "string", "컨테이너 역할", ", ".join(CONTAINER_ROLES)),
@@ -113,6 +120,8 @@ RULES: list[str] = [
     " 공유기가 이 대역을 N100으로 포워딩하므로, 다른 대역은 외부에서 접근할 수 없습니다.",
     "인증이 필요한 엔드포인트는 `auth`에 **어디서 자격 증명을 얻는지**(credentials_ref)만"
     " 적습니다. 비밀번호/토큰 값은 service.yaml·Git·채팅에 쓰지 마세요.",
+    "소비자(AI/앱)가 바로 호출할 수 있도록 `api_base_path`, `health_path`, `docs_url`을"
+    " 적으세요. `auth.header`는 bearer/api_key/custom에만 사용합니다.",
     "`containers[].name`은 compose의 서비스명과 같아야 계획/배포 검증이 정확합니다.",
     "파일 위치는 `/srv/services/<service.id>/service.yaml` 고정입니다"
     " (배포 실행기가 이 경로만 읽습니다).",

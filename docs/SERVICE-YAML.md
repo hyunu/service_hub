@@ -113,6 +113,11 @@ security:
 | `endpoints[].auth.type` |  | string | none, basic, bearer, api_key, mtls, custom |
 | `endpoints[].auth.credentials_ref` |  | string | 자격 증명 **위치** 참조. `type!=none`이면 필수 |
 | `endpoints[].auth.hint` |  | string | 사람이 읽는 안내(한 줄) |
+| `endpoints[].auth.header` |  | string | bearer/api_key/custom 인증 헤더 이름 (예: `X-User-Id`) |
+| `endpoints[].api_base_path` |  | string | API 기본 경로 (예: `/api/v1`) |
+| `endpoints[].health_path` |  | string | 헬스체크 경로 (예: `/healthz`) |
+| `endpoints[].docs_url` |  | string | 문서/OpenAPI URL |
+| `endpoints[].bind_addr` |  | string | 호스트 바인드 주소(정보용) |
 | `containers[].name` |  | string | **compose 서비스명과 동일** |
 | `containers[].role` |  | string | frontend, backend, worker, database, cache, proxy, other |
 | `containers[].required` |  | bool | 배포 후 기동 필수 (기본 true) |
@@ -152,6 +157,19 @@ auth:
   type: basic
   credentials_ref: 1password://n100/my-app/basic
   hint: 운영자에게 자격 증명 요청
+```
+
+소비자(AI/앱)가 호출 경로를 추측하지 않도록 접속 계약도 함께 기록합니다.
+
+```yaml
+api_base_path: /api/v1
+health_path: /healthz
+docs_url: https://example.com/docs
+bind_addr: 100.85.245.79
+auth:
+  type: custom
+  header: X-User-Id
+  credentials_ref: operator://n100/my-app/demo-user
 ```
 
 이미 등록된 서비스는 `PATCH /api/v1/services/<id>/endpoints/<name>/auth`로

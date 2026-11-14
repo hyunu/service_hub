@@ -63,6 +63,7 @@ class EndpointAuth(_Strict):
     type: Literal["none", "basic", "bearer", "api_key", "mtls", "custom"] = "none"
     credentials_ref: str | None = Field(default=None, max_length=300)
     hint: str | None = Field(default=None, max_length=300)
+    header: str | None = Field(default=None, max_length=120)
 
     @field_validator("credentials_ref")
     @classmethod
@@ -82,13 +83,22 @@ class EndpointAuth(_Strict):
             raise ValueError("hint는 한 줄이어야 합니다")
         return v
 
+    @field_validator("header")
+    @classmethod
+    def _header_name(cls, v: str | None):
+        if v is not None and not re.match(r"^[A-Za-z0-9-]{1,120}$", v):
+            raise ValueError("header는 HTTP 헤더 이름 형식이어야 합니다")
+        return v
+
     @model_validator(mode="after")
     def _check_consistency(self):
         if self.type == "none":
-            if self.credentials_ref or self.hint:
-                raise ValueError("auth.type=none에는 credentials_ref/hint를 둘 수 없습니다")
+            if self.credentials_ref or self.hint or self.header:
+                raise ValueError("auth.type=none에는 credentials_ref/hint/header를 둘 수 없습니다")
         elif not self.credentials_ref:
             raise ValueError("auth.type이 none이 아니면 credentials_ref가 필요합니다")
+        if self.header and self.type in ("basic", "mtls"):
+            raise ValueError("auth.header는 bearer/api_key/custom에만 사용합니다")
         return self
 
 
@@ -101,6 +111,25 @@ class Endpoint(_Strict):
     container: str = Field(min_length=1)
     container_port: int = Field(ge=1, le=65535)
     auth: EndpointAuth = Field(default_factory=EndpointAuth)
+    # 접속 계약 (소비자/AI가 호출 경로를 추측하지 않도록)
+    api_base_path: str | None = Field(default=None, max_length=300)
+    health_path: str | None = Field(default=None, max_length=300)
+    docs_url: str | None = Field(default=None, max_length=500)
+    bind_addr: str | None = Field(default=None, max_length=64)
+
+    @field_validator("api_base_path", "health_path")
+    @classmethod
+    def _path_shape(cls, v: str | None):
+        if v is not None and not v.startswith("/"):
+            raise ValueError("경로는 '/'로 시작해야 합니다")
+        return v
+
+    @field_validator("docs_url")
+    @classmethod
+    def _docs_url(cls, v: str | None):
+        if v is not None and not re.match(r"^https?://\S+$", v):
+            raise ValueError("docs_url은 http(s):// URL이어야 합니다")
+        return v
 
     @model_validator(mode="after")
     def _check_exposure(self):

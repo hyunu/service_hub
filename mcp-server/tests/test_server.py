@@ -12,8 +12,9 @@ def test_tools_are_exposed():
     tools = asyncio.run(srv.server.list_tools())
     names = {t.name for t in tools}
     required = {
-        "hub_status", "hub_services_list", "hub_service_get", "hub_service_access",
-        "hub_service_set_endpoint_auth", "hub_service_register",
+        "hub_status", "hub_capabilities", "hub_services_list", "hub_service_get",
+        "hub_service_access", "hub_service_set_endpoint_auth", "hub_service_register",
+        "hub_service_apply", "hub_ports_available", "hub_port_reserve", "hub_port_release",
         "hub_containers_list", "hub_orphans_list", "hub_orphans_attach",
         "hub_ports_list", "hub_service_logs", "hub_deploy_plan", "hub_deploy_apply",
         "hub_deploy_status",
@@ -44,6 +45,10 @@ class FakeClient:
     def patch(self, path, payload):
         self.created.append({"path": path, "payload": payload})
         return {"name": "web", "auth": payload["auth"]}
+
+    def put(self, path, payload):
+        self.created.append({"path": path, "payload": payload})
+        return {"id": path.split("/")[2], "runtime_unchanged": True}
 
     def post_raw(self, path, body, content_type, timeout=None):
         self.created.append({"path": path, "bytes": len(body),
@@ -96,6 +101,37 @@ def test_service_set_endpoint_auth_calls_patch(fake):
         "payload": {"auth": {"type": "basic",
                              "credentials_ref": "1password://n100/gyeol/basic"}},
     }
+
+
+def test_capabilities_calls_endpoint(fake):
+    out = srv.hub_capabilities()
+    assert out["ok"] is True
+    assert out["data"]["path"] == "/system/capabilities"
+
+
+def test_ports_available_calls_endpoint(fake):
+    out = srv.hub_ports_available(count=3, range="50003-50010")
+    assert out["ok"] is True
+    assert out["data"]["path"] == "/ports/available"
+
+
+def test_port_reserve_calls_reservations(fake):
+    out = srv.hub_port_reserve("my-app", 50003, component="web")
+    assert out["ok"] is True
+    assert fake.created[-1]["path"] == "/ports/reservations"
+    assert fake.created[-1]["payload"]["host_port"] == 50003
+
+
+def test_service_apply_calls_put(fake):
+    spec = {
+        **SPEC,
+        "endpoints": [{"name": "web", "type": "http", "exposure": "host",
+                       "host_port": 50003, "container": "web", "container_port": 80}],
+    }
+    out = srv.hub_service_apply("my-app", spec)
+    assert out["ok"] is True
+    assert fake.created[-1]["path"] == "/services/my-app/spec"
+    assert fake.created[-1]["payload"]["endpoints"][0]["host_port"] == 50003
 
 
 def test_deploy_apply_requires_confirmation(fake):

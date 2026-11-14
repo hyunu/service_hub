@@ -93,6 +93,30 @@ def test_host_port_outside_policy_rejected():
     assert "50000-59999" in str(e.value)
 
 
+def test_custom_auth_header_and_paths_are_valid():
+    spec = validate_spec_dict(_spec_with_auth({
+        "type": "custom", "header": "X-User-Id",
+        "credentials_ref": "operator://app/demo-user", "hint": "데모 인증",
+    }) | {"endpoints": [{
+        **_spec_with_auth({"type": "none"})["endpoints"][0],
+        "auth": {"type": "custom", "header": "X-User-Id",
+                 "credentials_ref": "operator://app/demo-user"},
+        "api_base_path": "/api/v1", "health_path": "/healthz",
+        "docs_url": "https://example.com/docs", "bind_addr": "100.85.245.79",
+    }]})
+    ep = spec.endpoints[0]
+    assert ep.auth.header == "X-User-Id"
+    assert ep.health_path == "/healthz"
+
+
+def test_basic_auth_header_rejected():
+    with pytest.raises(SpecError):
+        validate_spec_dict(_spec_with_auth({
+            "type": "basic", "header": "X-User-Id",
+            "credentials_ref": "operator://app/basic",
+        }))
+
+
 def test_internal_endpoint_ignores_host_port_policy():
     spec = {**VALID, "endpoints": [{
         "name": "db", "type": "tcp", "exposure": "internal",

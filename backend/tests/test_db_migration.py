@@ -37,7 +37,8 @@ def test_endpoint_auth_columns_added_to_legacy_table(tmp_path):
         init_db()
         _ensure_additive_columns()  # 멱등성: 두 번 호출해도 실패하지 않는다
         cols = {c["name"] for c in inspect(get_engine()).get_columns("endpoints")}
-        assert {"auth_type", "credentials_ref", "auth_hint"} <= cols
+        assert {"auth_type", "credentials_ref", "auth_hint", "auth_header",
+                "api_base_path", "health_path", "docs_url", "bind_addr"} <= cols
 
         con = sqlite3.connect(db_path)
         try:

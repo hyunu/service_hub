@@ -36,9 +36,11 @@ server = MCPServer(
         "N100 Service Hub 관리 도구. **배포 모델**: 허브는 서버의 "
         "/srv/services/<service-id> 를 빌드한다. 소스는 hub_service_sync_source 로 "
         "MCP가 직접 업로드할 수 있다(SSH·git 자격증명 불필요). "
-        "워크플로: hub_service_spec_guide → hub_service_scaffold → hub_service_validate → "
-        "hub_service_register → hub_service_sync_source → hub_deploy_plan(READY) → "
-        "hub_deploy_apply(service_id, confirmed=true) → hub_deploy_status. "
+        "워크플로: hub_capabilities → hub_service_spec_guide → "
+        "hub_ports_available/예약 → hub_service_scaffold → hub_service_validate → "
+        "hub_service_register 또는 hub_service_apply → hub_service_sync_source → "
+        "hub_deploy_plan(READY) → hub_deploy_apply(service_id, confirmed=true) → "
+        "hub_deploy_status → hub_service_access. "
         "실패 시 자동 롤백(HUB_DEPLOY_AUTO_ROLLBACK) 또는 hub_deploy_rollback. "
         "배포 전에 hub_deployment_guide 로 사전조건·오류를 확인하라. "
         "서비스에 접속할 때는 hub_service_access 로 URL·인증 방식·자격 증명 "
@@ -100,6 +102,16 @@ def deploy_service(service_id: str = "<service-id>") -> str:
 def hub_status() -> dict:
     """허브/도커/모니터의 현재 상태 요약과 경고를 반환한다."""
     return _run(lambda: _client().get("/system/status"))
+
+
+@server.tool()
+def hub_capabilities() -> dict:
+    """배포 가능 여부·API 키 scope·포트 대역·업로드/게이트 상태를 반환한다.
+
+    배포를 시작하기 전에 먼저 호출해 **이 키로 무엇을 할 수 있는지** 확인한다.
+    비밀값은 포함하지 않는다.
+    """
+    return _run(lambda: _client().get("/system/capabilities"))
 
 
 @server.tool()
@@ -219,6 +231,47 @@ def hub_ports_list() -> dict:
 
 
 @server.tool()
+def hub_ports_available(count: int = 5, range: str | None = None,
+                        protocol: str = "tcp") -> dict:
+    """50000번대에서 예약/점유되지 않은 가용 포트 후보를 반환한다.
+
+    Args:
+        count: 후보 개수 (1~50)
+        range: "50003-50020" 형식. 생략하면 전체 정책 대역
+        protocol: tcp | udp
+    """
+    params: dict[str, Any] = {"count": max(1, min(count, 50)), "protocol": protocol}
+    if range:
+        params["range"] = range
+    return _run(lambda: _client().get("/ports/available", params=params))
+
+
+@server.tool()
+def hub_port_reserve(service_id: str, host_port: int, protocol: str = "tcp",
+                     bind_addr: str = "0.0.0.0", container_port: int | None = None,
+                     component: str | None = None, exposure: str = "host") -> dict:
+    """배포 전에 호스트 포트를 예약한다 (50000-59999만 허용).
+
+    이미 점유/예약된 포트는 409로 거부된다. 배포 전 충돌을 줄이려면 사용한다.
+    """
+    payload: dict[str, Any] = {
+        "service_id": service_id, "host_port": host_port, "protocol": protocol,
+        "bind_addr": bind_addr, "exposure": exposure,
+    }
+    if container_port is not None:
+        payload["container_port"] = container_port
+    if component:
+        payload["component"] = component
+    return _run(lambda: _client().post("/ports/reservations", payload))
+
+
+@server.tool()
+def hub_port_release(reservation_id: int) -> dict:
+    """포트 예약을 해제한다 (실제 컨테이너 바인딩은 건드리지 않는다)."""
+    return _run(lambda: _client().delete(f"/ports/reservations/{reservation_id}"))
+
+
+@server.tool()
 def hub_service_logs(service_id: str, tail: int = 200) -> dict:
     """서비스 컴포넌트 컨테이너의 최근 로그를 반환한다."""
     return _run(lambda: _client().get(f"/services/{service_id}/logs",
@@ -273,7 +326,7 @@ def hub_service_register(spec: dict, deployment_path: str | None = None,
              "deployment": {"type": "docker-compose", "compose_file": "compose.yaml"},
              "containers": [{"name": "web", "role": "frontend"}],
              "endpoints": [{"name": "web", "type": "http", "exposure": "host",
-                            "host_port": 8080, "container": "web", "container_port": 80}]}
+                            "host_port": 50003, "container": "web", "container_port": 80}]}
         deployment_path: 호스트에서 compose.yaml 이 있는 **절대 경로** (예: /srv/services/my-app).
             컨테이너 내부 경로가 아니라 Docker 데몬(호스트) 기준 경로다.
         dry_run: true 면 검증/변환 결과만 반환하고 등록하지 않는다.
@@ -288,6 +341,32 @@ def hub_service_register(spec: dict, deployment_path: str | None = None,
             return {"dry_run": True, "payload": payload}
         created = client.create_service(payload)
         return {"service": created, "payload": payload}
+
+    return _run(_do)
+
+
+@server.tool()
+def hub_service_apply(service_id: str, spec: dict, dry_run: bool = False) -> dict:
+    """service.yaml로 서비스 레지스트리를 **등록 또는 갱신**한다.
+
+    이미 등록된 서비스의 컴포넌트/엔드포인트(포트·인증·접속 경로)를 새 스펙으로
+    교체한다. 컨테이너/볼륨/런타임은 변경하지 않는다. `hub_service_register`의
+    409(중복) 문제 없이 재배포 전 정의를 최신화할 때 사용한다.
+
+    Args:
+        service_id: 서비스 ID (spec.service.id와 같아야 함)
+        spec: service.yaml과 동일한 dict
+        dry_run: true면 검증 결과만 반환한다
+    """
+    client = _client()
+
+    def _do() -> dict:
+        validated = client.validate_spec(spec)
+        normalized = validated.get("spec", spec)
+        if dry_run:
+            return {"dry_run": True, "spec": normalized}
+        result = client.put(f"/services/{service_id}/spec", normalized)
+        return {"service": result, "runtime_unchanged": True}
 
     return _run(_do)
 
@@ -337,6 +416,12 @@ def hub_service_sync_source(service_id: str, path: str,
                             exclude: list[str] | None = None,
                             dry_run: bool = False, max_mb: int = 200) -> dict:
     """로컬 디렉터리 소스를 허브의 배포 디렉터리로 업로드한다 (SSH/git 불필요).
+
+    **중요**: 이 도구는 MCP 서버 프로세스가 실행 중인 머신의 파일 시스템만 읽는다.
+    - 로컬(stdio) MCP: 호출자 프로젝트 경로를 그대로 사용할 수 있다.
+    - 원격(HTTP, N100) MCP: N100 서버의 경로만 읽을 수 있다. 호출자 PC의 소스를
+      올리려면 로컬 MCP를 쓰거나, 허브 REST `POST /services/{id}/source`로
+      tar.gz를 직접 업로드해야 한다(`HUB_ENABLE_SOURCE_UPLOAD=true` 필요).
 
     허브는 받은 tar.gz 를 `/srv/services/<service_id>` 에 안전하게 풀어 쓴다.
     컨테이너/이미지는 건드리지 않으므로, 이어서 `hub_deploy_apply` 로 배포한다.

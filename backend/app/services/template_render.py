@@ -34,6 +34,11 @@ endpoints:
     #   type: basic
     #   credentials_ref: 1password://n100/{{ID}}/basic
     #   hint: 운영자에게 자격 증명 요청
+    # 소비자(AI/앱)가 호출 경로를 추측하지 않도록 접속 계약을 적는다.
+    # api_base_path: /api/v1
+    # health_path: /healthz
+    # docs_url: https://example.com/docs
+    # bind_addr: 0.0.0.0
 containers:
   - name: app
     role: backend

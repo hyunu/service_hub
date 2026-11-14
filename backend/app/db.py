@@ -59,6 +59,11 @@ _ADDITIVE_COLUMNS: dict[str, dict[str, str]] = {
         "auth_type": "VARCHAR(16) DEFAULT 'none'",
         "credentials_ref": "VARCHAR(300)",
         "auth_hint": "VARCHAR(300)",
+        "auth_header": "VARCHAR(120)",
+        "api_base_path": "VARCHAR(300)",
+        "health_path": "VARCHAR(300)",
+        "docs_url": "VARCHAR(500)",
+        "bind_addr": "VARCHAR(64)",
     },
 }
 

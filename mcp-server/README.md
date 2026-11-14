@@ -93,14 +93,18 @@ sudo ./mcp-server/deploy/install-remote.sh
 | 도구 | 설명 |
 |---|---|
 | `hub_status` | 허브/도커/모니터 상태 요약 |
+| `hub_capabilities` | 배포 게이트·scope·포트 대역·업로드 가능 여부 |
 | `hub_services_list` | 서비스 목록 (검색/상태/카테고리) |
 | `hub_service_get` | 서비스 상세(컴포넌트·엔드포인트·컨테이너) |
-| `hub_service_access` | 접속 URL·인증 방식·자격 증명 참조 (비밀값 미반환) |
+| `hub_service_access` | 접속 URL·인증 방식·자격 증명 참조·health 경로 (비밀값 미반환) |
 | `hub_containers_list` | 전체 컨테이너 인벤토리 |
 | `hub_orphans_list` | 미관리 컨테이너 목록 |
 | `hub_ports_list` | 포트 사용/예약 현황 |
+| `hub_ports_available` | 50000-59999 미할당 포트 후보 |
+| `hub_port_reserve` / `hub_port_release` | 포트 예약/해제 |
 | `hub_service_logs` | 서비스 로그 |
 | `hub_service_register` | service.yaml로 서비스 등록 (`dry_run` 지원) |
+| `hub_service_apply` | service.yaml로 레지스트리 등록/갱신 (런타임 무변경) |
 | `hub_service_set_endpoint_auth` | 엔드포인트 인증 메타데이터(참조) 기록 |
 | `hub_service_sync_source` | **로컬 소스 디렉터리를 허브로 업로드** (SSH 불필요) |
 | `hub_orphans_attach` | 미관리 컨테이너를 서비스에 수동 연결 |
@@ -158,7 +162,7 @@ sudo systemctl status hub-mcp
 sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
-전체 사용법(도구 21개, 배포 워크플로, 클라이언트 설정)은 `docs/MCP.md`를 참고하세요.
+전체 사용법(도구 26개, 배포 워크플로, 클라이언트 설정)은 `docs/MCP.md`를 참고하세요.
 
 ## 8. 배포 방식 자문 (AI용)
 

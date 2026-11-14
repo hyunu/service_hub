@@ -185,6 +185,8 @@ export interface EndpointAuth {
   /** 값이 아니라 위치 참조 (예: 1password://n100/app/basic) */
   credentials_ref?: string | null;
   hint?: string | null;
+  /** bearer/api_key/custom 인증 헤더 이름 (예: X-User-Id) */
+  header?: string | null;
 }
 
 export interface ServiceEndpoint {
@@ -198,6 +200,10 @@ export interface ServiceEndpoint {
   container_port: number | null;
   enabled?: boolean;
   auth?: EndpointAuth | null;
+  api_base_path?: string | null;
+  health_path?: string | null;
+  docs_url?: string | null;
+  bind_addr?: string | null;
 }
 
 export interface ServiceListItem {

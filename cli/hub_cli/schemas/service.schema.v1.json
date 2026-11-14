@@ -87,6 +87,12 @@
                 "minLength": 1,
                 "maxLength": 300,
                 "description": "사람이 읽는 안내. 비밀번호/토큰 값 금지."
+              },
+              "header": {
+                "type": "string",
+                "maxLength": 120,
+                "pattern": "^[A-Za-z0-9-]+$",
+                "description": "bearer/api_key/custom 인증 헤더 이름. 예: X-User-Id"
               }
             },
             "allOf": [
@@ -107,11 +113,35 @@
                 "then": {
                   "allOf": [
                     { "not": { "required": ["credentials_ref"] } },
-                    { "not": { "required": ["hint"] } }
+                    { "not": { "required": ["hint"] } },
+                    { "not": { "required": ["header"] } }
                   ]
                 }
               }
             ]
+          },
+          "api_base_path": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^/",
+            "description": "API 기본 경로. 예: /api/v1"
+          },
+          "health_path": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^/",
+            "description": "헬스체크 경로. 예: /healthz"
+          },
+          "docs_url": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^https?://\\S+$",
+            "description": "문서/OpenAPI URL"
+          },
+          "bind_addr": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "호스트 바인드 주소(정보용). 예: 100.85.245.79, 0.0.0.0"
           }
         },
         "allOf": [

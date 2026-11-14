@@ -134,7 +134,7 @@
     무인증 401 → Mac API로 우회했다. 허브는 포트만 노출하고 인증/자격 증명 위치를 표현하지 못했다.
   - `service.yaml` `endpoints[].auth`(`type`/`credentials_ref`/`hint`) 추가. 값이 아니라
     `scheme://...` **참조만** 허용하고 비밀번호/토큰 값은 422로 거부한다.
-  - `GET /services/{id}/access`: 요청 호스트 기준 URL + 인증 방식 + 참조 + `reachable`.
+  - `GET /services/{id}/access`: 요청 호스트 기준 URL + 인증 방식 + 참조 + `url_available`(계산값, 실제 probe 아님).
     `PATCH /services/{id}/endpoints/{name}/auth`: 기존 서비스 메타데이터만 갱신(런타임 무변경, 감사 로그).
   - MCP `hub_service_access` / `hub_service_set_endpoint_auth` 추가(도구 21개).
     AI는 URL·인증·참조를 먼저 확인하고 추측 우회하지 않는다. 비밀값은 반환하지 않는다.
@@ -159,6 +159,22 @@
   - **N100 배포 완료(2026-11-14, `d96b04e`)**: 18080 검증 → `422 host_port_out_of_range`,
     50003 검증 → 200, `range=8000-9000` → `422 range_out_of_policy`,
     기본 가용 후보 50003/50004/50005. 기존 서비스 컨테이너·볼륨·네트워크 무변경.
+- **AI 자율 배포용 MCP 정보 완성 (2026-11-15)**:
+  - `hub_capabilities`: 배포/소스 업로드 게이트, API 키 scope, 허용 서비스, 포트 대역,
+    auto-rollback, workdir를 반환. AI가 배포 가능 여부를 먼저 판단한다.
+  - `hub_ports_available` / `hub_port_reserve` / `hub_port_release`: 50000번대
+    미할당 포트 조회·예약·해제.
+  - `hub_service_apply`: service.yaml로 레지스트리 **등록/갱신**(409 없이) —
+    포트/인증/접속 계약을 재등록 없이 교체. 런타임 무변경.
+  - 접속 계약 확장: `api_base_path`, `health_path`, `docs_url`, `bind_addr`,
+    `auth.header`. `hub_service_access`가 `api_url`/`health_url`과
+    `url_available`/`verified`를 반환(계산값과 실제 확인을 구분).
+  - MCP 배포 가이드 전면 갱신: capabilities → 포트 예약 → 정의/갱신 → 업로드 →
+    계획 → 배포 → 접속 확인 → 롤백, 오류 코드, 소스 동기화 실행 위치 주의.
+  - **소스 동기화 한계 명시**: `hub_service_sync_source`는 MCP 프로세스의 파일만
+    읽는다. 원격(HTTP) MCP는 호출자 PC 경로를 읽을 수 없어 로컬 MCP 또는
+    `POST /services/{id}/source` 업로드가 필요하다.
+  - 테스트: backend +5( capabilities/apply/contract), MCP +5(도구/가이드).
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.

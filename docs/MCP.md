@@ -29,18 +29,21 @@ sudo systemctl restart hub-mcp
 sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
-## 2. 도구 (21개)
+## 2. 도구 (26개)
 
 ### 조회
 | 도구 | 설명 |
 |---|---|
 | `hub_status` | 허브/도커/모니터 상태 요약 |
+| `hub_capabilities` | **배포 게이트·API 키 scope·포트 대역·업로드 가능 여부** |
 | `hub_services_list` | 서비스 목록(검색/상태 필터) |
 | `hub_service_get` | 서비스 상세 |
-| `hub_service_access` | **접속 URL·인증 방식·자격 증명 참조** (비밀값 미반환) |
+| `hub_service_access` | **접속 URL·인증 방식·자격 증명 참조·health 경로** (비밀값 미반환) |
 | `hub_containers_list` | 컨테이너 목록(상태/관리 필터) |
 | `hub_orphans_list` | 미관리 컨테이너 |
 | `hub_ports_list` | 포트 레지스트리/예약 |
+| `hub_ports_available` | 50000-59999 미할당 포트 후보 |
+| `hub_port_reserve` / `hub_port_release` | 포트 예약/해제 |
 | `hub_service_logs` | 서비스 소속 컨테이너 로그 |
 | `hub_service_spec_guide` | **service.yaml 예시·필드·규칙** |
 | `hub_deployment_guide` | 배포 모델·사전조건·오류·안전 안내 |
@@ -54,6 +57,7 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 | `hub_service_scaffold` | `/srv/services/<id>/{service.yaml,compose.yaml}` 생성 |
 | `hub_service_sync_source` | 소스 디렉터리를 배포 디렉터리로 업로드 (SSH 불필요) |
 | `hub_service_register` | 서비스 레지스트리(DB) 등록 |
+| `hub_service_apply` | **service.yaml로 레지스트리 등록/갱신** (런타임 무변경) |
 | `hub_service_set_endpoint_auth` | 엔드포인트 인증 메타데이터(참조) 기록 |
 | `hub_orphans_attach` | 미관리 컨테이너 수동 그룹핑 |
 | `hub_deploy_plan` | 배포 계획 (컨테이너 무변경) |
@@ -63,23 +67,65 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 ## 3. 배포 워크플로 (AI가 따르는 순서)
 
 ```
-1) hub_service_spec_guide          # service.yaml 형식 학습
-2) hub_service_scaffold            # /srv/services/<id>/ 파일 생성
-3) hub_service_validate            # 스키마 검증
-4) hub_service_register            # DB 등록 (deployment_path=/srv/services/<id>)
-5) hub_deploy_plan                 # READY 확인 (impact 비어 있어야 함)
-6) hub_deploy_apply(service_id, confirmed=true)
-7) hub_deploy_status / hub_deployments_list
-8) 필요 시 hub_deploy_rollback(confirmed=true)
+1) hub_capabilities                 # 게이트/scope/포트 대역/업로드 가능 여부
+2) hub_service_spec_guide           # service.yaml 형식 학습
+3) hub_ports_available [→ reserve]  # 50000-59999 미할당 포트 확보
+4) hub_service_scaffold             # 신규: /srv/services/<id>/ 파일 생성
+5) hub_service_validate             # 스키마·포트·인증 검증
+6) hub_service_register             # 신규 등록
+   hub_service_apply                # 기존 정의 갱신 (409 없이 교체)
+7) hub_service_sync_source          # 소스 업로드 (로컬 MCP 필요)
+8) hub_deploy_plan                  # READY 확인 (impact 비어 있어야 함)
+9) hub_deploy_apply(service_id, confirmed=true)
+10) hub_deploy_status / hub_service_get
+11) hub_service_access              # URL·인증·health 경로 확인
+12) 필요 시 hub_deploy_rollback(confirmed=true)
 ```
+
+> `hub_service_sync_source`는 **MCP 서버 프로세스의 파일 시스템**을 읽습니다.
+> 원격(HTTP, N100) MCP에서는 호출자 PC 경로를 읽을 수 없으므로, 로컬 MCP를 쓰거나
+> `POST /services/{id}/source`로 tar.gz를 직접 업로드해야 합니다.
 
 필수 전제:
 - `HUB_ENABLE_DEPLOY=true` (배포 게이트) — false면 scaffold/plan/apply 모두 거부
+- `HUB_ENABLE_SOURCE_UPLOAD=true` (소스 업로드)
+- API 키에 `write`/`deploy` scope
 - `/srv/services`는 백엔드(uid 10001) 소유여야 scaffold/롤백이 가능
   ```bash
   sudo chown 10001:10001 /srv/services
   ```
 - `compose.yaml`의 서비스명 = `service.yaml`의 `containers[].name`
+
+### 3.1 AI 자율 배포 모드 — 소스 업로드는 실행 위치를 따른다
+
+`hub_service_sync_source`는 **MCP 서버 프로세스가 실행 중인 머신**의 파일만 읽습니다.
+
+| 모드 | 소스 업로드 | 권장 상황 |
+|---|---|---|
+| **로컬 stdio MCP** | 호출자 프로젝트 경로 업로드 가능 | 다른 프로젝트의 AI가 자기 소스를 배포 |
+| 원격 HTTP MCP (N100) | N100 서버 경로만 읽음 | 읽기/계획/배포/상태 조회 |
+| 원격 + REST 업로드 | `POST /services/{id}/source`에 tar.gz | 로컬 MCP를 못 쓰는 경우 |
+
+로컬 MCP 예시(프로젝트 AI가 소스까지 스스로 올리는 구성):
+```jsonc
+"n100-service-hub-local": {
+  "type": "local",
+  "command": ["uv", "run", "--project",
+              "/Users/hyunu/project/service_hub/mcp-server", "hub-mcp"],
+  "environment": {
+    "HUB_URL": "http://100.85.245.79:8420/api/v1",
+    "HUB_API_KEY": "hub_..."
+  }
+}
+```
+
+원격 MCP + REST 업로드:
+```bash
+tar -czf /tmp/svc.tgz -C /path/to/project .
+curl -X POST -H "X-API-Key: $HUB_API_KEY" -H "Content-Type: application/gzip" \
+  --data-binary @/tmp/svc.tgz "$HUB_API_URL/services/<id>/source"
+```
+`HUB_API_URL`은 `hub_capabilities.api_base_url`에서 확인합니다.
 
 ## 4. 클라이언트 설정
 

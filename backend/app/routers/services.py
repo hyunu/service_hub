@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import (Container, ContainerAssignment, Endpoint, PortReservation,
-                      Service, ServiceComponent)
+                      Service, ServiceComponent, utcnow)
 from ..port_policy import is_allowed_host_port, range_label
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit, record_event
@@ -44,6 +44,10 @@ class EndpointIn(BaseModel):
     container: str
     container_port: int
     auth: EndpointAuth = Field(default_factory=EndpointAuth)
+    api_base_path: str | None = None
+    health_path: str | None = None
+    docs_url: str | None = None
+    bind_addr: str | None = None
 
 
 class ServiceCreate(BaseModel):
@@ -154,6 +158,7 @@ def _endpoint_auth(e: Endpoint) -> dict:
         "type": e.auth_type or "none",
         "credentials_ref": e.credentials_ref,
         "hint": e.auth_hint,
+        "header": e.auth_header,
     }
 
 
@@ -163,6 +168,10 @@ def _endpoint_dict(e: Endpoint) -> dict:
         "hostname": e.hostname, "host_port": e.host_port,
         "container": e.container, "container_port": e.container_port,
         "auth": _endpoint_auth(e),
+        "api_base_path": e.api_base_path,
+        "health_path": e.health_path,
+        "docs_url": e.docs_url,
+        "bind_addr": e.bind_addr,
     }
 
 
@@ -234,7 +243,10 @@ def create_service(body: ServiceCreate, db: Session = Depends(get_db),
         db.add(Endpoint(service_id=body.id, name=ep.name, type=ep.type, exposure=ep.exposure,
                         hostname=ep.hostname, host_port=ep.host_port, container=ep.container,
                         container_port=ep.container_port, auth_type=ep.auth.type,
-                        credentials_ref=ep.auth.credentials_ref, auth_hint=ep.auth.hint))
+                        credentials_ref=ep.auth.credentials_ref, auth_hint=ep.auth.hint,
+                        auth_header=ep.auth.header, api_base_path=ep.api_base_path,
+                        health_path=ep.health_path, docs_url=ep.docs_url,
+                        bind_addr=ep.bind_addr))
     record_audit(db, actor, "service.create", target=body.id)
     db.commit()
     return _summary(db, svc)
@@ -422,6 +434,72 @@ def service_spec_guide():
     return guide()
 
 
+@router.put("/{service_id}/spec")
+def apply_service_spec(service_id: str, payload: dict,
+                       db: Session = Depends(get_db),
+                       actor: str = Depends(get_read_actor)):
+    """service.yaml로 서비스 레지스트리를 **등록 또는 갱신**한다.
+
+    컨테이너/볼륨/런타임은 변경하지 않는다. 기존 서비스의 컴포넌트/엔드포인트
+    정의를 새 스펙으로 교체하므로, 포트/인증 메타데이터를 재등록 없이 갱신할 수 있다.
+    AI가 배포 전에 `service.yaml`을 단일 출처로 유지하기 위한 경로다.
+    """
+    from ..services.service_spec import SpecError, validate_spec_dict
+
+    if not SERVICE_ID_RE.match(service_id):
+        raise HubError(status_code=422, detail="서비스 ID 형식이 올바르지 않습니다",
+                       code="invalid_service_id")
+    try:
+        spec = validate_spec_dict(payload)
+    except SpecError as exc:
+        raise HubError(status_code=422, detail=str(exc), code=exc.code) from exc
+    if spec.service.id != service_id:
+        raise HubError(status_code=422,
+                       detail=f"service.id({spec.service.id})와 경로 ID({service_id})가 다릅니다",
+                       code="id_mismatch")
+
+    svc = db.get(Service, service_id)
+    created = svc is None
+    if svc is None:
+        svc = Service(id=service_id, status="registered")
+        db.add(svc)
+    svc.name = spec.service.name
+    svc.description = spec.service.description
+    svc.category = spec.service.category
+    svc.version = spec.service.version
+    svc.documentation = spec.service.documentation
+    svc.tags = spec.service.tags
+    svc.repository_url = spec.source.repository_url or None
+    svc.branch = spec.source.branch or None
+    svc.deployment_type = spec.deployment.type
+    svc.deployment_path = svc.deployment_path or f"/srv/services/{service_id}"
+    svc.compose_file = spec.deployment.compose_file
+    svc.updated_at = utcnow()
+
+    # 컴포넌트/엔드포인트는 스펙을 단일 출처로 교체한다 (런타임은 그대로).
+    svc.components.clear()
+    svc.endpoints.clear()
+    db.flush()
+    for c in spec.containers:
+        svc.components.append(ServiceComponent(
+            service_id=service_id, name=c.name, role=c.role,
+            required=c.required, description=c.description))
+    svc.endpoints.clear()
+    db.flush()
+    for ep in spec.endpoints:
+        svc.endpoints.append(Endpoint(
+            service_id=service_id, name=ep.name, type=ep.type, exposure=ep.exposure,
+            hostname=ep.hostname, host_port=ep.host_port, container=ep.container,
+            container_port=ep.container_port, auth_type=ep.auth.type,
+            credentials_ref=ep.auth.credentials_ref, auth_hint=ep.auth.hint,
+            auth_header=ep.auth.header, api_base_path=ep.api_base_path,
+            health_path=ep.health_path, docs_url=ep.docs_url, bind_addr=ep.bind_addr))
+    record_audit(db, actor, "service.spec_apply", target=service_id,
+                 detail={"created": created, "endpoints": len(spec.endpoints)})
+    db.commit()
+    return {**_summary(db, svc), "created": created, "runtime_unchanged": True}
+
+
 @router.get("/{service_id}")
 def get_service(service_id: str, db: Session = Depends(get_db)):
     svc = _service_or_404(db, service_id)
@@ -592,10 +670,17 @@ def service_access(service_id: str, request: Request, db: Session = Depends(get_
             url = f"{scheme}://{e.hostname}"
         elif e.exposure == "host" and e.host_port:
             url = f"{scheme}://{host}:{e.host_port}"
+        health_url = f"{url}{e.health_path}" if url and e.health_path else None
+        api_url = f"{url}{e.api_base_path}" if url and e.api_base_path else None
         items.append({
             **_endpoint_dict(e),
             "url": url,
-            "reachable": url is not None,
+            "api_url": api_url,
+            "health_url": health_url,
+            "url_available": url is not None,
+            "verified": False,
+            "note": "url은 요청 호스트 기준 계산값이며 실제 HTTP 확인은 아니다. "
+                    "health_url로 소비자가 직접 확인하라.",
         })
     return {"service_id": service_id, "endpoints": items}
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import Container, Event, Service, Setting
+from ..port_policy import range_label
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit
 from ..services.resource import collect_host
@@ -120,6 +121,47 @@ class SettingsUpdate(BaseModel):
     cpu_warn_pct: float | None = None
     cpu_crit_pct: float | None = None
     cpu_sustain_seconds: int | None = None
+
+
+@router.get("/capabilities")
+def capabilities(request: Request, auth: dict = Depends(require_auth)):
+    """AI/자동화가 배포 가능 여부를 스스로 판단하는 데 필요한 정보.
+
+    비밀값은 포함하지 않는다. API 키 scope, 배포/업로드 게이트, 포트 대역,
+    허용 서비스 목록만 반환한다.
+    """
+    import os
+
+    settings = get_settings()
+    deploy_ok, deploy_reason = settings.deploy_gate()
+    return {
+        "hub_name": settings.name,
+        "api_base_url": str(request.base_url).rstrip("/") + "/api/v1",
+        "auth": {
+            "kind": auth.get("auth", "session"),
+            "username": auth.get("username"),
+            "scopes": auth.get("scopes") or ["*"],
+        },
+        "deploy": {
+            "enabled": deploy_ok,
+            "reason": None if deploy_ok else deploy_reason,
+            "allowed_services": settings.deploy_allowed or None,
+            "auto_rollback": settings.deploy_auto_rollback,
+            "workdir": os.environ.get("HUB_DEPLOY_WORKDIR", "/srv/services"),
+            "snapshot_enabled": bool(settings.deploy_snapshot_dir),
+        },
+        "source_upload": {
+            "enabled": settings.enable_source_upload,
+            "max_mb": settings.source_upload_max_mb,
+            "max_extract_mb": settings.source_upload_max_extract_mb,
+            "note": "원격 MCP는 호출자 PC의 파일을 읽을 수 없다. 로컬 MCP 또는 REST 업로드를 사용하라.",
+        },
+        "docker_actions": {"enabled": settings.enable_docker_actions},
+        "ports": {
+            "host_range": range_label(),
+            "reservation_required": False,
+        },
+    }
 
 
 @router.get("/settings")

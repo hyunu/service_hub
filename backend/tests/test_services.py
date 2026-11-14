@@ -159,6 +159,8 @@ AUTH_SERVICE = {
     "endpoints": [{
         "name": "web", "type": "http", "exposure": "host", "host_port": 50180,
         "container": "web", "container_port": 80,
+        "api_base_path": "/api/v1", "health_path": "/healthz",
+        "docs_url": "https://example.com/docs", "bind_addr": "100.85.245.79",
         "auth": {"type": "basic",
                  "credentials_ref": "1password://n100/auth-app/basic",
                  "hint": "운영자에게 요청"},
@@ -167,7 +169,8 @@ AUTH_SERVICE = {
 
 AUTH_EXPECTED = {"type": "basic",
                  "credentials_ref": "1password://n100/auth-app/basic",
-                 "hint": "운영자에게 요청"}
+                 "hint": "운영자에게 요청",
+                 "header": None}
 
 
 def test_host_port_outside_policy_rejected_on_register(client):
@@ -226,8 +229,57 @@ def test_service_access_resolves_url_and_auth(client):
     assert r.status_code == 200, r.text
     ep = r.json()["endpoints"][0]
     assert ep["url"] == "http://100.85.245.79:50180"
-    assert ep["reachable"] is True
+    assert ep["api_url"] == "http://100.85.245.79:50180/api/v1"
+    assert ep["health_url"] == "http://100.85.245.79:50180/healthz"
+    assert ep["bind_addr"] == "100.85.245.79"
+    assert ep["url_available"] is True
+    assert ep["verified"] is False
     assert ep["auth"] == AUTH_EXPECTED
+
+
+def test_system_capabilities(client):
+    r = client.get("/api/v1/system/capabilities")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ports"]["host_range"] == "50000-59999"
+    assert body["auth"]["scopes"] == ["*"]
+    assert body["deploy"]["workdir"]
+    assert "enabled" in body["source_upload"]
+
+
+def test_apply_service_spec_upserts_registry_only(client):
+    spec = {
+        "schema_version": 1,
+        "service": {"id": "spec-app", "name": "Spec App", "description": "d",
+                    "category": "web", "version": "1.0.0"},
+        "deployment": {"type": "docker-compose", "compose_file": "compose.yaml"},
+        "containers": [{"name": "web", "role": "frontend", "required": True}],
+        "endpoints": [{
+            "name": "api", "type": "http", "exposure": "host", "host_port": 50190,
+            "container": "web", "container_port": 8080,
+            "api_base_path": "/api/v1", "health_path": "/healthz",
+            "auth": {"type": "custom", "header": "X-User-Id",
+                     "credentials_ref": "operator://spec-app/demo-user",
+                     "hint": "데모 인증"},
+        }],
+    }
+    r = mutate(client, "PUT", "/api/v1/services/spec-app/spec", json=spec)
+    assert r.status_code == 200, r.text
+    assert r.json()["created"] is True
+    assert r.json()["runtime_unchanged"] is True
+
+    detail = client.get("/api/v1/services/spec-app").json()
+    ep = detail["endpoints"][0]
+    assert ep["host_port"] == 50190
+    assert ep["auth"]["header"] == "X-User-Id"
+    assert ep["health_path"] == "/healthz"
+
+    # 같은 서비스에 다시 적용하면 409 없이 갱신된다.
+    spec["endpoints"][0]["host_port"] = 50191
+    r2 = mutate(client, "PUT", "/api/v1/services/spec-app/spec", json=spec)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["created"] is False
+    assert client.get("/api/v1/services/spec-app").json()["endpoints"][0]["host_port"] == 50191
 
 
 def test_service_access_internal_endpoint_has_no_url(client):
@@ -237,5 +289,5 @@ def test_service_access_internal_endpoint_has_no_url(client):
     mutate(client, "POST", "/api/v1/services", json=payload)
     ep = client.get("/api/v1/services/internal-app/access").json()["endpoints"][0]
     assert ep["url"] is None
-    assert ep["reachable"] is False
+    assert ep["url_available"] is False
     assert ep["auth"]["type"] == "none"

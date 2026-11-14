@@ -115,6 +115,12 @@ class Endpoint(Base):
     auth_type: Mapped[str] = mapped_column(String(16), default="none")
     credentials_ref: Mapped[str | None] = mapped_column(String(300))
     auth_hint: Mapped[str | None] = mapped_column(String(300))
+    # 접속 계약 — 소비자가 호출/헬스체크 경로를 추측하지 않도록 기록한다.
+    auth_header: Mapped[str | None] = mapped_column(String(120))
+    api_base_path: Mapped[str | None] = mapped_column(String(300))
+    health_path: Mapped[str | None] = mapped_column(String(300))
+    docs_url: Mapped[str | None] = mapped_column(String(500))
+    bind_addr: Mapped[str | None] = mapped_column(String(64))
 
     service: Mapped[Service] = relationship(back_populates="endpoints")
 
