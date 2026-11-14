@@ -175,6 +175,10 @@
     읽는다. 원격(HTTP) MCP는 호출자 PC 경로를 읽을 수 없어 로컬 MCP 또는
     `POST /services/{id}/source` 업로드가 필요하다.
   - 테스트: backend +5( capabilities/apply/contract), MCP +5(도구/가이드).
+  - **N100 배포 완료(2026-11-15, `1c5e463`)**: `hub-backend` healthy,
+    `/system/capabilities`(scope/deploy/upload/port range) 확인,
+    `hub_service_access`가 `url_available`/`verified`/경로 필드 반환,
+    endpoints 신규 컬럼 마이그레이션 확인. 기존 서비스 무변경.
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.
