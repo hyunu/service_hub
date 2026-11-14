@@ -163,6 +163,8 @@ def _endpoint_auth(e: Endpoint) -> dict:
 
 
 def _endpoint_dict(e: Endpoint) -> dict:
+    out_of_policy = bool(e.exposure == "host" and e.host_port
+                         and not is_allowed_host_port(e.host_port))
     return {
         "name": e.name, "type": e.type, "exposure": e.exposure,
         "hostname": e.hostname, "host_port": e.host_port,
@@ -172,6 +174,7 @@ def _endpoint_dict(e: Endpoint) -> dict:
         "health_path": e.health_path,
         "docs_url": e.docs_url,
         "bind_addr": e.bind_addr,
+        "out_of_policy": out_of_policy,
     }
 
 
@@ -672,15 +675,23 @@ def service_access(service_id: str, request: Request, db: Session = Depends(get_
             url = f"{scheme}://{host}:{e.host_port}"
         health_url = f"{url}{e.health_path}" if url and e.health_path else None
         api_url = f"{url}{e.api_base_path}" if url and e.api_base_path else None
+        out_of_policy = bool(e.exposure == "host" and e.host_port
+                             and not is_allowed_host_port(e.host_port))
+        internet_reachable = (e.exposure == "proxy"
+                              or (e.exposure == "host" and not out_of_policy))
         items.append({
             **_endpoint_dict(e),
             "url": url,
             "api_url": api_url,
             "health_url": health_url,
             "url_available": url is not None,
+            "internet_reachable": internet_reachable,
             "verified": False,
             "note": "url은 요청 호스트 기준 계산값이며 실제 HTTP 확인은 아니다. "
                     "health_url로 소비자가 직접 확인하라.",
+            **({"warning": f"host_port {e.host_port}가 {range_label()} 밖이라 "
+                           "공유기 포워딩 대상이 아니다. 50000번대로 이동해야 한다."}
+               if out_of_policy else {}),
         })
     return {"service_id": service_id, "endpoints": items}
 

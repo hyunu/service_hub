@@ -39,6 +39,25 @@ def test_plan_requires_auth(anon_client):
     assert r.status_code in (401, 403)
 
 
+def test_plan_reads_service_env_names_without_values(app_factory, tmp_path, monkeypatch):
+    """번들 .env의 변수 '이름'을 필수 env 검사에 반영한다 (값은 읽지 않는다)."""
+    svc_dir = tmp_path / "sample-app"
+    svc_dir.mkdir()
+    (svc_dir / ".env").write_text(
+        "# comment\nEXAMPLE_VAR=super-secret\nOTHER=\"x\"\n", encoding="utf-8")
+    monkeypatch.setenv("HUB_DEPLOY_WORKDIR", str(tmp_path))
+    client = app_factory(admin=True)
+    try:
+        spec = {**SPEC_BODY, "security": {"required_env": ["EXAMPLE_VAR", "OTHER"]}}
+        r = mutate(client, "POST", "/api/v1/deployments/plan", json=spec)
+        assert r.status_code == 200, r.text
+        assert r.json()["result"] == "READY", r.json()["impact"]
+        checks = {c["check"]: c for c in r.json()["validation"]}
+        assert checks["Required variables"]["result"] == "PASS"
+    finally:
+        client.__exit__(None, None, None)
+
+
 def test_apply_still_locked_when_deploy_disabled(client):
     r = mutate(client, "POST", "/api/v1/deployments",
                json={"service_id": "sample-app", "spec": SPEC_BODY})

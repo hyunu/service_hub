@@ -168,12 +168,16 @@
     포트/인증/접속 계약을 재등록 없이 교체. 런타임 무변경.
   - 접속 계약 확장: `api_base_path`, `health_path`, `docs_url`, `bind_addr`,
     `auth.header`. `hub_service_access`가 `api_url`/`health_url`과
-    `url_available`/`verified`를 반환(계산값과 실제 확인을 구분).
+    `url_available`/`verified`/`out_of_policy`/`internet_reachable`를 반환
+    (계산값과 실제 확인, 포트 정책 위반을 구분).
   - MCP 배포 가이드 전면 갱신: capabilities → 포트 예약 → 정의/갱신 → 업로드 →
     계획 → 배포 → 접속 확인 → 롤백, 오류 코드, 소스 동기화 실행 위치 주의.
   - **소스 동기화 한계 명시**: `hub_service_sync_source`는 MCP 프로세스의 파일만
     읽는다. 원격(HTTP) MCP는 호출자 PC 경로를 읽을 수 없어 로컬 MCP 또는
     `POST /services/{id}/source` 업로드가 필요하다.
+  - 배포 계획의 `required_env` 검사가 서버 환경 + `/srv/services/<id>/.env`의
+    **이름**을 함께 인식한다(값 미노출, symlink/1MB 제한). 번들 `.env`만 있어도
+    계획이 `BLOCKED`되지 않는다.
   - 테스트: backend +5( capabilities/apply/contract), MCP +5(도구/가이드).
   - **N100 배포 완료(2026-11-15, `1c5e463`)**: `hub-backend` healthy,
     `/system/capabilities`(scope/deploy/upload/port range) 확인,

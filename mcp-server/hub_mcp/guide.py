@@ -109,6 +109,8 @@ endpoints:
 - `exposure: host`는 `host_port` 필수(50000-59999), `proxy`는 `hostname` 필수
 - **시크릿 값 금지**: `security.required_env`에는 **이름만** 적고, 실제 값은 서비스
   `.env`(600/660) 또는 운영자 비밀번호 관리 도구에 둔다.
+- `security.required_env` 검사는 서버 환경변수와 `/srv/services/<id>/.env`의
+  **이름**을 함께 본다(값은 읽지 않음).
 - 허용되지 않은 필드는 거부된다(오타 방지)
 
 ## 7) 오류 코드와 대처
@@ -197,9 +199,11 @@ def deployment_guide() -> dict:
         },
         "access_contract": {
             "fields": ["url", "api_url", "health_url", "auth.type", "auth.header",
-                       "credentials_ref", "url_available", "verified"],
+                       "credentials_ref", "url_available", "verified",
+                       "out_of_policy", "internet_reachable"],
             "secret_values": "MCP는 값을 반환하지 않는다",
             "verified_false": "URL 계산값일 뿐 실제 HTTP 확인 아님 → health_url 직접 확인",
+            "out_of_policy": "host_port가 50000-59999 밖이면 인터넷 포워딩 대상 아님",
         },
         "timings": {
             "source_sync": "~1s",

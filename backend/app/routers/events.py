@@ -148,9 +148,30 @@ def _collect_plan_context(db: Session, spec):
         if snap.compose_project == project and snap.compose_service:
             current[snap.compose_service] = {"image": snap.image, "state": snap.state}
 
-    # 필수 환경 변수는 서버 환경변수에서 존재 여부만 확인 (값은 노출하지 않음)
+    # 필수 환경 변수는 서버 환경변수 + 서비스 `.env`의 **이름**에서 확인한다.
     import os
+    import re
+    from pathlib import Path
+
     available_env = set(os.environ)
+    workdir = Path(os.environ.get("HUB_DEPLOY_WORKDIR", "/srv/services"))
+    env_path = workdir / spec.service.id / ".env"
+    try:
+        if env_path.is_symlink() or not env_path.is_file() \
+                or env_path.stat().st_size > 1_000_000:
+            raise OSError("unsafe env file")
+        for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            key, sep, _ = line.partition("=")
+            key = key.strip()
+            if sep and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                available_env.add(key)
+    except OSError:
+        pass
 
     mem_available = None
     try:

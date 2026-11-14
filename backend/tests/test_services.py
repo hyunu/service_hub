@@ -233,6 +233,8 @@ def test_service_access_resolves_url_and_auth(client):
     assert ep["health_url"] == "http://100.85.245.79:50180/healthz"
     assert ep["bind_addr"] == "100.85.245.79"
     assert ep["url_available"] is True
+    assert ep["internet_reachable"] is True
+    assert ep["out_of_policy"] is False
     assert ep["verified"] is False
     assert ep["auth"] == AUTH_EXPECTED
 
@@ -282,6 +284,24 @@ def test_apply_service_spec_upserts_registry_only(client):
     assert client.get("/api/v1/services/spec-app").json()["endpoints"][0]["host_port"] == 50191
 
 
+def test_service_access_marks_legacy_out_of_policy_port(client):
+    """정책 이전에 등록된 18080 같은 포트는 인터넷 포워딩 대상이 아님을 표시한다."""
+    from app.db import get_session_factory
+    from app.models import Endpoint, Service
+
+    with get_session_factory()() as s:
+        s.add(Service(id="legacy-app", name="Legacy", description="d", category="web"))
+        s.flush()
+        s.add(Endpoint(service_id="legacy-app", name="web", type="http", exposure="host",
+                       host_port=18080, container="web", container_port=80))
+        s.commit()
+
+    ep = client.get("/api/v1/services/legacy-app/access").json()["endpoints"][0]
+    assert ep["out_of_policy"] is True
+    assert ep["internet_reachable"] is False
+    assert "50000-59999" in ep["warning"]
+
+
 def test_service_access_internal_endpoint_has_no_url(client):
     payload = {**VALID_SERVICE, "id": "internal-app", "name": "Internal",
                "endpoints": [{"name": "api", "type": "http", "exposure": "internal",
@@ -290,4 +310,5 @@ def test_service_access_internal_endpoint_has_no_url(client):
     ep = client.get("/api/v1/services/internal-app/access").json()["endpoints"][0]
     assert ep["url"] is None
     assert ep["url_available"] is False
+    assert ep["internet_reachable"] is False
     assert ep["auth"]["type"] == "none"
