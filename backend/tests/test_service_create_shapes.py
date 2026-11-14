@@ -41,7 +41,7 @@ def test_create_service_with_nested_payload_and_components(client):
         "containers": [{"name": "web", "role": "frontend"},
                        {"name": "api", "role": "backend", "required": False}],
         "endpoints": [{"name": "web", "type": "http", "exposure": "host",
-                       "host_port": 18080, "container": "web", "container_port": 80}],
+                       "host_port": 50180, "container": "web", "container_port": 80}],
         "resources": {"memory_limit_mb": 512},
     }
     r = mutate(client, "POST", "/api/v1/services", json=payload)
@@ -51,7 +51,7 @@ def test_create_service_with_nested_payload_and_components(client):
     assert sorted(c["name"] for c in detail["components"]) == ["api", "web"]
     required = {c["name"]: c["required"] for c in detail["components"]}
     assert required == {"api": False, "web": True}
-    assert detail["endpoints"][0]["host_port"] == 18080
+    assert detail["endpoints"][0]["host_port"] == 50180
     assert detail["repository_url"] == "https://example.com/r.git"
     assert detail["branch"] == "dev"
 

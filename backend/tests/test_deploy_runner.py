@@ -98,10 +98,10 @@ def test_runner_blocks_on_plan_not_ready(settings, tmp_path):
     from app.db import init_db
     from app.docker_client import FakeDockerGateway
     init_db()
-    ctx = PlanContext(available_env=set(), conflicting_ports={8000},
+    ctx = PlanContext(available_env=set(), conflicting_ports={50130},
                       mem_available_mb=4096, compose_ok=True, current_containers={})
     spec = validate_spec_dict({**RUNNER_SPEC, "endpoints": [
-        {"name": "web", "type": "http", "exposure": "host", "host_port": 8000,
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 50130,
          "container": "app", "container_port": 3000}]})
     runner = DeployRunner(gateway=FakeDockerGateway(allow_mutations=True),
                           workdir_resolver=lambda sid: str(tmp_path), enable_deploy=True)

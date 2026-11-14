@@ -56,7 +56,12 @@
           "type": { "type": "string", "enum": ["http", "https", "tcp", "udp", "grpc"] },
           "exposure": { "type": "string", "enum": ["proxy", "host", "internal"] },
           "hostname": { "type": "string", "description": "exposure=proxy일 때 필요" },
-          "host_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "host_port": {
+            "type": "integer",
+            "minimum": 50000,
+            "maximum": 59999,
+            "description": "exposure=host일 때 필수. 공유기가 N100으로 포워딩하는 50000-59999 대역의 미할당 포트만 허용"
+          },
           "container": { "type": "string", "minLength": 1 },
           "container_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
           "auth": {

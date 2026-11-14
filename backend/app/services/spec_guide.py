@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from ..port_policy import range_label
 from .template_render import SERVICE_YAML
 
 EXAMPLE_ID = "my-app"
@@ -71,7 +72,9 @@ FIELDS: list[dict] = [
     _f("endpoints[].exposure", False, "string",
        "proxy=Traefik 도메인, host=직접 포트, internal=Docker 내부", ", ".join(EXPOSURES)),
     _f("endpoints[].hostname", False, "string", "exposure=proxy일 때 필수", None),
-    _f("endpoints[].host_port", False, "int", "exposure=host일 때 필수", "1~65535"),
+    _f("endpoints[].host_port", False, "int",
+       "exposure=host일 때 필수. N100으로 포워딩되는 미할당 포트만 허용",
+       range_label()),
     _f("endpoints[].container", False, "string", "대상 컨테이너(compose 서비스명)", None),
     _f("endpoints[].container_port", False, "int", "컨테이너 내부 포트", "1~65535"),
     _f("endpoints[].auth.type", False, "string",
@@ -106,6 +109,8 @@ RULES: list[str] = [
     " 실제 값은 서비스 디렉터리의 `.env`에 넣습니다(Git 커밋 금지).",
     "`schema_version`은 1만 지원합니다. 다른 값은 임의 해석하지 않고 거부합니다.",
     "`endpoints[].exposure=proxy`면 `hostname`이, `host`면 `host_port`가 필요합니다.",
+    f"`exposure: host`의 `host_port`는 {range_label()} 대역의 미할당 포트만 허용됩니다."
+    " 공유기가 이 대역을 N100으로 포워딩하므로, 다른 대역은 외부에서 접근할 수 없습니다.",
     "인증이 필요한 엔드포인트는 `auth`에 **어디서 자격 증명을 얻는지**(credentials_ref)만"
     " 적습니다. 비밀번호/토큰 값은 service.yaml·Git·채팅에 쓰지 마세요.",
     "`containers[].name`은 compose의 서비스명과 같아야 계획/배포 검증이 정확합니다.",
@@ -122,6 +127,7 @@ def guide() -> dict:
     return {
         "schema_version": 1,
         "file_location": "/srv/services/<service.id>/service.yaml",
+        "host_port_range": range_label(),
         "create_command": "hub service new <service-id> --dir /srv/services",
         "validate_command": "hub service validate /srv/services/<service-id>",
         "plan_command": "hub deploy plan /srv/services/<service-id>/service.yaml",
@@ -136,6 +142,7 @@ def guide() -> dict:
             "endpoint_type": ENDPOINT_TYPES,
             "exposure": EXPOSURES,
             "auth_type": AUTH_TYPES,
+            "host_port_range": range_label(),
             "restart_policy": RESTART_POLICIES,
         },
         "docs": "docs/SERVICE-YAML.md",

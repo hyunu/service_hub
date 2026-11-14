@@ -14,7 +14,7 @@ SPEC = {
     "deployment": {"type": "docker-compose", "compose_file": "compose.yaml"},
     "containers": [{"name": "web", "role": "frontend"}],
     "endpoints": [{"name": "web", "type": "http", "exposure": "host",
-                   "host_port": 8080, "container": "web", "container_port": 80}],
+                   "host_port": 50100, "container": "web", "container_port": 80}],
 }
 
 
@@ -31,7 +31,7 @@ def test_spec_to_payload_maps_spec_fields():
     assert p["compose_file"] == "compose.yaml"
     assert p["deployment_path"] == "/srv/services/my-app"
     assert p["components"] == [{"name": "web", "role": "frontend"}]
-    assert p["endpoints"][0]["host_port"] == 8080
+    assert p["endpoints"][0]["host_port"] == 50100
     assert p["repository_url"] == "https://example.com/repo.git"
 
 

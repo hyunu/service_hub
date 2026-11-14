@@ -45,7 +45,7 @@ def _spec_with_auth(auth):
     return {
         **VALID,
         "endpoints": [{
-            "name": "web", "type": "http", "exposure": "host", "host_port": 8080,
+            "name": "web", "type": "http", "exposure": "host", "host_port": 50100,
             "container": "web", "container_port": 80, "auth": auth,
         }],
     }
@@ -79,6 +79,26 @@ def test_endpoint_auth_none_rejects_reference():
         validate_spec_dict(_spec_with_auth({
             "type": "none", "credentials_ref": "1password://n100/app/basic",
         }))
+
+
+def test_host_port_outside_policy_rejected():
+    """공유기가 포워딩하는 50000번대 밖의 호스트 포트는 거부한다."""
+    spec = _spec_with_auth({"type": "none"})
+    # auth.type=none은 hint/ref가 없어야 하므로 auth를 제거한다.
+    spec["endpoints"][0].pop("auth")
+    spec["endpoints"][0]["host_port"] = 18080
+    with pytest.raises(SpecError) as e:
+        validate_spec_dict(spec)
+    assert e.value.code == "host_port_out_of_range"
+    assert "50000-59999" in str(e.value)
+
+
+def test_internal_endpoint_ignores_host_port_policy():
+    spec = {**VALID, "endpoints": [{
+        "name": "db", "type": "tcp", "exposure": "internal",
+        "container": "db", "container_port": 5432,
+    }]}
+    assert validate_spec_dict(spec).endpoints[0].host_port is None
 
 
 def test_parse_spec_from_yaml(tmp_path):

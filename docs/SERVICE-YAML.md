@@ -107,7 +107,7 @@ security:
 | `endpoints[].type` |  | string | http, https, tcp, udp, grpc |
 | `endpoints[].exposure` |  | string | proxy, host, internal |
 | `endpoints[].hostname` |  | string | `proxy`일 때 필수 |
-| `endpoints[].host_port` |  | int | `host`일 때 필수 |
+| `endpoints[].host_port` |  | int | `host`일 때 필수. **50000-59999**만 허용 |
 | `endpoints[].container` |  | string | 대상 compose 서비스명 |
 | `endpoints[].container_port` |  | int | 1~65535 |
 | `endpoints[].auth.type` |  | string | none, basic, bearer, api_key, mtls, custom |
@@ -134,8 +134,11 @@ security:
    비밀번호/토큰 **값**을 넣으면 거부됩니다. `auth.type=none`에는 `credentials_ref`/`hint`를 둘 수 없습니다.
 4. `schema_version`이 1이 아니면 거부합니다.
 5. `exposure=proxy`에는 `hostname`, `host`에는 `host_port`가 필요합니다.
-6. `containers[].name`이 compose 서비스명과 다르면 계획/배포 검증이 어긋납니다.
-7. 배포 경로는 `/srv/services/<service.id>`로 고정입니다. `deployment_path`는 표시용 메타데이터입니다.
+6. **`exposure: host`의 `host_port`는 50000-59999 대역만 허용**됩니다. 공유기가 이 대역을
+   N100으로 포워딩하므로, 다른 대역은 외부에서 접근할 수 없습니다. 내부/프록시 노출은
+   호스트 포트를 쓰지 않으므로 대상이 아닙니다.
+7. `containers[].name`이 compose 서비스명과 다르면 계획/배포 검증이 어긋납니다.
+8. 배포 경로는 `/srv/services/<service.id>`로 고정입니다. `deployment_path`는 표시용 메타데이터입니다.
 
 ### 인증 메타데이터
 

@@ -147,6 +147,15 @@
     `service.endpoint_auth_update`(`gyeol/web`) 기록. `gyeol` web은
     `auth=basic`, `credentials_ref=operator://n100/gyeol/web-basic`으로 등록됨.
     `.htpasswd`→entrypoint 생성 전환과 앱용 tailnet API 분리는 gyeol 프로젝트 후속 작업.
+- **서비스 호스트 포트 대역 강제 (2026-11-14)**:
+  - 공유기가 `50000-59999` 대역을 N100으로 포워딩하므로, `exposure: host`의
+    `host_port`는 이 대역의 미할당 포트만 허용한다.
+  - `service_spec` 검증(코드 `host_port_out_of_range`), 서비스 등록, 배포 계획/실행,
+    포트 예약, CLI(schema min/max), 가용 포트 조회에서 강제한다.
+  - `find_available_ports` 기본/허용 범위를 50000-59999로 고정. 범위 밖 `range` 요청은 422.
+  - 예외: 긴급 롤백은 기존 스냅샷 재적용을 위해 `parse_spec(enforce_port_policy=False)`.
+  - 기존 대역 밖 서비스(asset-nest 20001/20002, trade-engine 20101/20102,
+    flow-plan 8780, gyeol 18080)는 다음 재배포 전에 50000번대로 이동해야 한다.
 - **무인 배포 실검증 (2026-10-24, flow-plan)**:
   - 로컬 `/Users/hyunu/project/flow_plan` 을 `deploy/sync.sh` 제외 규칙으로 스테이징
     (`/tmp/flow-plan-sync/app/`)한 뒤 MCP `hub_service_sync_source` 로 업로드.

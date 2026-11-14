@@ -60,7 +60,7 @@ def perform_rollback(db: Session, dep: Deployment, *, actor: str,
         raise HubError(status_code=409, detail=str(exc), code="snapshot_missing") from exc
 
     try:
-        spec = parse_spec(workdir)
+        spec = parse_spec(workdir, enforce_port_policy=False)
     except SpecError as exc:
         raise HubError(status_code=409,
                        detail=f"스냅샷의 service.yaml을 해석할 수 없습니다: {exc}",

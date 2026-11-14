@@ -223,13 +223,20 @@ def cmd_service_validate(args: argparse.Namespace) -> None:
         raise CliError("jsonschema 패키지가 필요합니다: pip install jsonschema", EXIT_ERR) from exc
     validator = jsonschema.Draft7Validator(schema)
     errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
+
+    def _message(e) -> str:
+        msg = e.message
+        if list(e.absolute_path)[-1:] == ["host_port"] and e.validator in ("minimum", "maximum"):
+            msg += " — N100은 50000-59999 대역만 사용합니다 (공유기 포워딩 대역)"
+        return msg
+
     if errors:
         if args.json:
             print(json.dumps({
                 "valid": False,
                 "errors": [
                     {"path": "/".join(str(p) for p in e.absolute_path) or "(root)",
-                     "message": e.message}
+                     "message": _message(e)}
                     for e in errors
                 ],
             }, ensure_ascii=False, indent=2))
@@ -237,7 +244,7 @@ def cmd_service_validate(args: argparse.Namespace) -> None:
             print(f"검증 실패: {path}", file=sys.stderr)
             for e in errors:
                 loc = "/".join(str(p) for p in e.absolute_path) or "(root)"
-                print(f"  - {loc}: {e.message}", file=sys.stderr)
+                print(f"  - {loc}: {_message(e)}", file=sys.stderr)
         sys.exit(EXIT_REJECTED)
     result = {"valid": True, "service_id": doc.get("service", {}).get("id")}
     emit(result, args.json,

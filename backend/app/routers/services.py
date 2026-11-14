@@ -15,6 +15,7 @@ from ..config import get_settings
 from ..db import get_db
 from ..models import (Container, ContainerAssignment, Endpoint, PortReservation,
                       Service, ServiceComponent)
+from ..port_policy import is_allowed_host_port, range_label
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit, record_event
 from ..services.grouping import bulk_attach
@@ -224,6 +225,12 @@ def create_service(body: ServiceCreate, db: Session = Depends(get_db),
         if ep.exposure == "proxy" and not ep.hostname:
             raise HubError(status_code=422, detail="proxy 노출에는 hostname이 필요합니다",
                                 code="hostname_required")
+        if ep.exposure == "host" and not is_allowed_host_port(ep.host_port):
+            raise HubError(
+                status_code=422,
+                detail=f"host_port {ep.host_port}는 허용 대역({range_label()})을 벗어났습니다. "
+                       "공유기가 N100으로 포워딩하는 50000번대의 미할당 포트를 사용하세요.",
+                code="host_port_out_of_range")
         db.add(Endpoint(service_id=body.id, name=ep.name, type=ep.type, exposure=ep.exposure,
                         hostname=ep.hostname, host_port=ep.host_port, container=ep.container,
                         container_port=ep.container_port, auth_type=ep.auth.type,

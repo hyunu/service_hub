@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
+from ..port_policy import HOST_PORT_MAX, HOST_PORT_MIN, range_label
 from ..security import HubError, get_read_actor, require_auth
 from ..services import ports as portsvc
 from ..services.events import record_audit
@@ -27,9 +28,23 @@ def available_ports(count: int = 5, range: str | None = None, protocol: str = "t
     if protocol not in ("tcp", "udp"):
         raise HubError(status_code=422, detail="protocol은 tcp/udp만 가능합니다",
                             code="invalid_protocol")
+    if range:
+        try:
+            lo_s, hi_s = range.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+        except (ValueError, TypeError):
+            raise HubError(status_code=422, detail="range는 '최소-최대' 형식이어야 합니다",
+                           code="invalid_range")
+        if lo > hi or lo < HOST_PORT_MIN or hi > HOST_PORT_MAX:
+            raise HubError(
+                status_code=422,
+                detail=f"range는 {range_label()} 안이어야 합니다 "
+                       "(공유기가 N100으로 포워딩하는 대역).",
+                code="range_out_of_policy")
     candidates = portsvc.find_available_ports(db, settings, count=count,
                                               range_spec=range, protocol=protocol)
-    return {"candidates": candidates, "protocol": protocol, "range": range or "default",
+    return {"candidates": candidates, "protocol": protocol,
+            "range": range or range_label(),
             "note": "이 목록은 조회 시점 기준이며 예약과 동시에 충돌할 수 있습니다"}
 
 

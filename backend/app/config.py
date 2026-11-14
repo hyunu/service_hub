@@ -5,6 +5,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .port_policy import HOST_PORT_MAX, HOST_PORT_MIN
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="HUB_", env_file=".env", extra="ignore")
@@ -49,8 +51,8 @@ class Settings(BaseSettings):
     cpu_sustain_seconds: int = 60
 
     # 포트 정책
-    port_scan_min: int = 8000
-    port_scan_max: int = 8999
+    port_scan_min: int = HOST_PORT_MIN
+    port_scan_max: int = HOST_PORT_MAX
     protected_ports: list[int] = [22]
 
     # WebAuthn (생체인식/패스워드리스) — 보안 컨텍스트(HTTPS)가 필요하다.

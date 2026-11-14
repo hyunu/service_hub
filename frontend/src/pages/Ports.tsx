@@ -33,6 +33,10 @@ const STATE_FILTERS = [
   { value: "internal", label: "내부 전용" },
 ];
 
+/** 공유기가 N100으로 포워딩하는 서비스 포트 대역 (백엔드 정책과 동일). */
+const HOST_PORT_MIN = 50000;
+const HOST_PORT_MAX = 59999;
+
 /* ------------------------------ 포트 예약 다이얼로그 ------------------------------ */
 
 interface ReserveForm {
@@ -86,8 +90,8 @@ function ReserveDialog({
     const port = Number(form.host_port);
     if (!form.service_id) errs.service_id = "서비스를 선택하세요.";
     if (!form.component.trim()) errs.component = "컴포넌트 이름을 입력하세요.";
-    if (!Number.isInteger(port) || port < 1 || port > 65535)
-      errs.host_port = "호스트 포트는 1~65535 사이 정수여야 합니다.";
+    if (!Number.isInteger(port) || port < HOST_PORT_MIN || port > HOST_PORT_MAX)
+      errs.host_port = `호스트 포트는 ${HOST_PORT_MIN}~${HOST_PORT_MAX} 사이여야 합니다.`;
     if (form.container_port) {
       const cp = Number(form.container_port);
       if (!Number.isInteger(cp) || cp < 1 || cp > 65535)
@@ -188,11 +192,11 @@ function ReserveDialog({
           <Input
             id="res-port"
             type="number"
-            min={1}
-            max={65535}
+            min={HOST_PORT_MIN}
+            max={HOST_PORT_MAX}
             value={form.host_port}
             onChange={(e) => setForm({ ...form, host_port: e.target.value })}
-            placeholder="8080"
+            placeholder="50003"
             aria-invalid={!!fieldErrors.host_port}
           />
           {fieldErrors.host_port ? (
@@ -256,8 +260,9 @@ function ReserveDialog({
         </div>
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        SSH(22)와 관리 포트(8420)는 자동 할당 대상에서 제외됩니다. 기존에 사용 중인 포트는 자동 변경되지
-        않으며, 충돌 시 409 오류로 거부됩니다.
+        N100 서비스는 공유기가 포워딩하는 {HOST_PORT_MIN}~{HOST_PORT_MAX} 대역의 미할당 포트만
+        사용할 수 있습니다. SSH(22)와 관리 포트(8420)는 자동 할당 대상에서 제외됩니다.
+        기존에 사용 중인 포트는 자동 변경되지 않으며, 충돌 시 409 오류로 거부됩니다.
       </p>
     </Dialog>
   );
@@ -267,7 +272,7 @@ function ReserveDialog({
 
 function AvailableFinder({ onReserve }: { onReserve: (port: number) => void }) {
   const [count, setCount] = React.useState("5");
-  const [range, setRange] = React.useState("8000-9000");
+  const [range, setRange] = React.useState(`${HOST_PORT_MIN}-${HOST_PORT_MAX}`);
   const [protocol, setProtocol] = React.useState("tcp");
   const [ports, setPorts] = React.useState<number[] | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -316,7 +321,7 @@ function AvailableFinder({ onReserve }: { onReserve: (port: number) => void }) {
               id="avail-range"
               value={range}
               onChange={(e) => setRange(e.target.value)}
-              placeholder="8000-9000"
+              placeholder={`${HOST_PORT_MIN}-${HOST_PORT_MAX}`}
               className="h-8 font-mono"
             />
           </div>

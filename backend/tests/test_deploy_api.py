@@ -88,7 +88,7 @@ def test_apply_requires_csrf(app_factory, tmp_path):
 def test_apply_plan_not_ready_409(app_factory, tmp_path):
     (tmp_path / "sample-app").mkdir()
     spec = {**SPEC_BODY, "endpoints": [
-        {"name": "web", "type": "http", "exposure": "host", "host_port": 8420,
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 50120,
          "container": "app", "container_port": 3000}]}
     client = app_factory(admin=True, enable_deploy=True,
                          deploy_workdir=str(tmp_path),
@@ -100,7 +100,7 @@ def test_apply_plan_not_ready_409(app_factory, tmp_path):
         with get_session_factory()() as s:
             s.add(Service(id="other-svc", name="Other", description="d", category="web"))
             s.flush()
-            s.add(PortReservation(service_id="other-svc", host_port=8420,
+            s.add(PortReservation(service_id="other-svc", host_port=50120,
                                   protocol="tcp", container_port=3000))
             s.commit()
         r = mutate(client, "POST", "/api/v1/deployments", json={"spec": spec})
@@ -121,12 +121,12 @@ def test_plan_ignores_own_service_port(client):
         s.add(Container(
             container_id="c1", name="sample-app-app", state="running",
             management_state="managed", service_id="sample-app",
-            ports=[{"host_port": 8765, "container_port": 8765,
+            ports=[{"host_port": 50121, "container_port": 8765,
                     "proto": "tcp", "bind_addr": "100.85.245.79"}]))
         s.commit()
 
     spec = {**SPEC_BODY, "endpoints": [
-        {"name": "web", "type": "http", "exposure": "host", "host_port": 8765,
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 50121,
          "container": "app", "container_port": 8765}]}
     r = mutate(client, "POST", "/api/v1/deployments/plan", json=spec)
     assert r.status_code == 200, r.text
@@ -144,12 +144,12 @@ def test_plan_blocks_other_service_port(client):
         s.add(Container(
             container_id="c2", name="other-app", state="running",
             management_state="managed", service_id="other-svc",
-            ports=[{"host_port": 8765, "container_port": 80,
+            ports=[{"host_port": 50121, "container_port": 80,
                     "proto": "tcp", "bind_addr": "100.85.245.79"}]))
         s.commit()
 
     spec = {**SPEC_BODY, "endpoints": [
-        {"name": "web", "type": "http", "exposure": "host", "host_port": 8765,
+        {"name": "web", "type": "http", "exposure": "host", "host_port": 50121,
          "container": "app", "container_port": 8765}]}
     r = mutate(client, "POST", "/api/v1/deployments/plan", json=spec)
     assert r.status_code == 200

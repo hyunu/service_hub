@@ -9,7 +9,7 @@ SPEC = {
     "containers": [{"name": "frontend", "role": "frontend", "required": True},
                    {"name": "backend", "role": "backend", "required": True}],
     "endpoints": [{"name": "web", "type": "http", "exposure": "host",
-                   "host_port": 8123, "container": "frontend", "container_port": 3000}],
+                   "host_port": 50123, "container": "frontend", "container_port": 3000}],
     "security": {"required_env": ["EXAMPLE_VAR"]},
 }
 
@@ -24,7 +24,7 @@ def test_plan_ready_when_all_checks_pass(fake_ctx):
 
 def test_plan_blocked_on_port_conflict(fake_ctx):
     spec = validate_spec_dict(SPEC)
-    plan = build_plan(spec, ctx=fake_ctx(conflicting_ports={8123}))
+    plan = build_plan(spec, ctx=fake_ctx(conflicting_ports={50123}))
     assert plan["result"] == "BLOCKED"
     assert any("포트" in i["message"] for i in plan["impact"])
 

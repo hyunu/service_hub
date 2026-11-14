@@ -12,6 +12,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..port_policy import is_allowed_host_port, range_label
+
 SUPPORTED_SCHEMA_VERSIONS = {1}
 SERVICE_ID_RE = r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
 # 자격 증명은 값이 아니라 위치 참조만 허용한다 (예: 1password://..., operator://...).
@@ -163,7 +165,7 @@ class ServiceSpec(_Strict):
     security: Security = Field(default_factory=Security)
 
 
-def validate_spec_dict(data: Any) -> ServiceSpec:
+def validate_spec_dict(data: Any, *, enforce_port_policy: bool = True) -> ServiceSpec:
     if not isinstance(data, dict):
         raise SpecError("service.yaml 최상위는 매핑이어야 합니다", "spec_invalid")
     version = data.get("schema_version")
@@ -173,7 +175,7 @@ def validate_spec_dict(data: Any) -> ServiceSpec:
             f"(지원: {sorted(SUPPORTED_SCHEMA_VERSIONS)})",
             "unsupported_schema_version")
     try:
-        return ServiceSpec.model_validate(data)
+        spec = ServiceSpec.model_validate(data)
     except Exception as exc:  # pydantic ValidationError
         errors = getattr(exc, "errors", lambda: [])()
         detail = "; ".join(
@@ -181,9 +183,29 @@ def validate_spec_dict(data: Any) -> ServiceSpec:
         ) or str(exc)
         code = "invalid_service_id" if "service.id" in detail else "spec_validation_failed"
         raise SpecError(f"service.yaml 검증 실패 — {detail}", code, errors) from exc
+    if enforce_port_policy:
+        _check_host_port_policy(spec)
+    return spec
 
 
-def parse_spec(path: str | Path) -> ServiceSpec:
+def _check_host_port_policy(spec: ServiceSpec) -> None:
+    """호스트 게시 포트는 라우터가 포워딩하는 50000번대만 허용한다.
+
+    프록시/내부 엔드포인트는 호스트 포트를 쓰지 않으므로 대상이 아니다.
+    """
+    bad = [ep for ep in spec.endpoints
+           if ep.exposure == "host" and not is_allowed_host_port(ep.host_port)]
+    if bad:
+        detail = ", ".join(f"{ep.name}:{ep.host_port}" for ep in bad)
+        raise SpecError(
+            f"host_port가 허용 대역({range_label()})을 벗어났습니다: {detail}. "
+            "공유기가 N100으로 포워딩하는 50000번대의 미할당 포트를 사용하세요.",
+            "host_port_out_of_range",
+            [{"loc": ["endpoints", ep.name, "host_port"],
+              "msg": f"{range_label()} 대역만 허용"} for ep in bad])
+
+
+def parse_spec(path: str | Path, *, enforce_port_policy: bool = True) -> ServiceSpec:
     p = Path(path)
     if p.is_dir():
         p = p / "service.yaml"
@@ -193,4 +215,4 @@ def parse_spec(path: str | Path) -> ServiceSpec:
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise SpecError(f"YAML 파싱 오류: {exc}", "spec_yaml_error") from exc
-    return validate_spec_dict(data)
+    return validate_spec_dict(data, enforce_port_policy=enforce_port_policy)

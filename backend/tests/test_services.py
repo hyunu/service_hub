@@ -81,7 +81,7 @@ def test_delete_removes_registry_only(client, gateway):
     mutate(client, "POST", "/api/v1/services", json=VALID_SERVICE)
     gateway.containers = [make_fake_container(
         "c1", "ai-platform-frontend", project="ai-platform", service="frontend",
-        host_port=18080, container_port=3000)]
+        host_port=50180, container_port=3000)]
     client.app.state.monitor.run_once()      # 실제 런타임 반영
     cid_before = [i["container_id"] for i in client.get("/api/v1/containers").json()["items"]]
     assert cid_before == ["c1"]
@@ -157,7 +157,7 @@ AUTH_SERVICE = {
     "deployment_path": "/srv/services/auth-app",
     "compose_file": "compose.yaml",
     "endpoints": [{
-        "name": "web", "type": "http", "exposure": "host", "host_port": 18080,
+        "name": "web", "type": "http", "exposure": "host", "host_port": 50180,
         "container": "web", "container_port": 80,
         "auth": {"type": "basic",
                  "credentials_ref": "1password://n100/auth-app/basic",
@@ -168,6 +168,19 @@ AUTH_SERVICE = {
 AUTH_EXPECTED = {"type": "basic",
                  "credentials_ref": "1password://n100/auth-app/basic",
                  "hint": "운영자에게 요청"}
+
+
+def test_host_port_outside_policy_rejected_on_register(client):
+    payload = {
+        "id": "bad-port-app", "name": "Bad Port", "description": "범위 밖",
+        "category": "web",
+        "endpoints": [{"name": "web", "type": "http", "exposure": "host",
+                       "host_port": 18080, "container": "web", "container_port": 80}],
+    }
+    r = mutate(client, "POST", "/api/v1/services", json=payload)
+    assert r.status_code == 422
+    assert r.json()["code"] == "host_port_out_of_range"
+    assert client.get("/api/v1/services/bad-port-app").status_code == 404
 
 
 def test_endpoint_auth_metadata_roundtrip(client):
@@ -185,7 +198,7 @@ def test_endpoint_auth_can_be_updated_later(client):
     """기존 서비스도 auth 참조를 나중에 기록할 수 있다 (런타임 무변경)."""
     payload = {**VALID_SERVICE, "id": "legacy-app", "name": "Legacy",
                "endpoints": [{"name": "web", "type": "http", "exposure": "host",
-                              "host_port": 18080, "container": "frontend",
+                              "host_port": 50180, "container": "frontend",
                               "container_port": 80}]}
     mutate(client, "POST", "/api/v1/services", json=payload)
     r = mutate(client, "PATCH", "/api/v1/services/legacy-app/endpoints/web/auth",
@@ -212,7 +225,7 @@ def test_service_access_resolves_url_and_auth(client):
                    headers={"X-Forwarded-Host": "100.85.245.79"})
     assert r.status_code == 200, r.text
     ep = r.json()["endpoints"][0]
-    assert ep["url"] == "http://100.85.245.79:18080"
+    assert ep["url"] == "http://100.85.245.79:50180"
     assert ep["reachable"] is True
     assert ep["auth"] == AUTH_EXPECTED
 

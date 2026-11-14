@@ -27,7 +27,7 @@
    ```
 2. **가용 포트 확인 및 예약** — 임의 포트 선택 금지
    ```
-   hub port available --count 5 --range 8000-9000 --json
+   hub port available --count 5 --range 50000-50099 --json
    ```
    웹 UI의 Ports & Routing 또는 API `POST /api/v1/ports/reservations`로 예약한다.
 3. **표준 템플릿으로 서비스 디렉터리 생성**
@@ -62,6 +62,8 @@
 
 ## 2. 포트 규칙
 
+- **호스트 게시 포트는 `50000-59999` 대역의 미할당 포트만 사용한다.** 공유기가 이 대역을
+  N100으로 포워딩하므로, 다른 대역은 외부에서 접근할 수 없다.
 - 데이터베이스/캐시는 `exposure: internal` (호스트 포트 미할당)
 - 공개 웹 서비스는 `exposure: proxy` (Traefik 도메인) 우선
 - SSH 22, 관리 UI 8420 및 이미 점유된 포트는 사용 금지

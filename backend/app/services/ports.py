@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..models import Container, PortReservation, Service
+from ..port_policy import HOST_PORT_MAX, HOST_PORT_MIN, is_allowed_host_port, range_label
 
 
 class PortConflict(Exception):
@@ -133,11 +134,17 @@ def _addr_matches(a: str | None, b: str | None) -> bool:
 
 def find_available_ports(db: Session, settings: Settings, count: int = 5,
                          range_spec: str | None = None, protocol: str = "tcp") -> list[int]:
-    """예약/실제 점유/정책 제외 포트를 뺀 가용 후보."""
+    """예약/실제 점유/정책 제외 포트를 뺀 가용 후보.
+
+    정책상 50000번대(``HOST_PORT_MIN``~``HOST_PORT_MAX``) 밖은 후보가 될 수 없다.
+    """
     if range_spec and "-" in range_spec:
         lo, hi = (int(x) for x in range_spec.split("-", 1))
     else:
-        lo, hi = settings.port_scan_min, settings.port_scan_max
+        lo, hi = HOST_PORT_MIN, HOST_PORT_MAX
+    lo, hi = max(lo, HOST_PORT_MIN), min(hi, HOST_PORT_MAX)
+    if lo > hi:
+        return []
 
     taken: set[int] = set()
     for item in build_registry(db):
@@ -166,10 +173,15 @@ def create_reservation(db: Session, settings: Settings, *, service_id: str,
     """
     if not (1 <= host_port <= 65535):
         raise PortConflict("포트는 1~65535 범위여야 합니다.", "invalid_port")
-    if protocol not in ("tcp", "udp"):
-        raise PortConflict("프로토콜은 tcp 또는 udp여야 합니다.", "invalid_protocol")
     if host_port in settings.protected_ports or host_port == settings.port:
         raise PortConflict(f"포트 {host_port}는 보호 포트로 예약할 수 없습니다.", "protected_port")
+    if not is_allowed_host_port(host_port):
+        raise PortConflict(
+            f"호스트 포트는 {range_label()} 대역만 예약할 수 있습니다 "
+            "(공유기가 N100으로 포워딩하는 미할당 포트).",
+            "host_port_out_of_range")
+    if protocol not in ("tcp", "udp"):
+        raise PortConflict("프로토콜은 tcp 또는 udp여야 합니다.", "invalid_protocol")
     if db.get(Service, service_id) is None:
         raise PortConflict(f"서비스 '{service_id}'가 등록되어 있지 않습니다.", "service_not_found")
 
