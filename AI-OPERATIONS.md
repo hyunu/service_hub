@@ -175,6 +175,8 @@ MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 
 1. 대시보드 **Settings → API 키**에서 키를 발급한다 (평문은 1회만 표시).
    - 조회만 필요하면 `읽기 전용`, 배포까지 필요하면 전체 권한.
 2. AI 클라이언트 설정에 MCP 서버를 등록한다 (`mcp-server/README.md` §3).
+   - 설치까지 AI가 수행해야 하면 [`docs/MCP-INSTALL-AI.md`](docs/MCP-INSTALL-AI.md)를 따른다.
+   - 키는 대시보드에서 발급해 **클라이언트에만** 둔다(서버에 상주 키를 저장하지 않는다).
 
 ```json
 {

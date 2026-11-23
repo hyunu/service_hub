@@ -1,0 +1,20 @@
+[Unit]
+Description=N100 Service Hub MCP (HTTP, tailnet)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@MCP_USER@
+Group=@MCP_GROUP@
+WorkingDirectory=@REPO_DIR@/mcp-server
+Environment=HOME=@MCP_HOME@
+Environment=PATH=@MCP_HOME@/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HUB_URL=@HUB_URL@
+ExecStart=@UV_BIN@ run --project @REPO_DIR@/mcp-server hub-mcp --transport http --host @MCP_HOST@ --port @MCP_PORT@
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

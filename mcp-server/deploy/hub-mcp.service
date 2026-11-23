@@ -1,3 +1,5 @@
+# 참고용 예시(N100 기본값)입니다. 실제 설치/갱신은 install-remote.sh 가
+# hub-mcp.service.tmpl 을 렌더링해 설치합니다. 직접 복사하지 마세요.
 [Unit]
 Description=N100 Service Hub MCP (HTTP, tailnet)
 After=network-online.target docker.service

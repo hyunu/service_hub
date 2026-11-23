@@ -25,7 +25,10 @@
 설치/갱신:
 
 ```bash
-# 원격(HTTP) 상주 서버 — sudo 필요 (N100 기준 경로/IP가 unit에 고정)
+# 원격(HTTP) 상주 서버 — 사전 점검(권한 불필요)
+./mcp-server/deploy/install-remote.sh --dry-run
+
+# 실제 설치/갱신 — sudo 필요
 sudo ./mcp-server/deploy/install-remote.sh
 
 # 로컬(stdio) — 클라이언트가 프로세스를 직접 실행
@@ -34,10 +37,12 @@ uv run hub-mcp --print-config    # 클라이언트 설정 JSON 출력
 uv run hub-mcp                   # stdio 실행
 ```
 
+**AI가 설치를 수행해야 한다면 → [`docs/MCP-INSTALL-AI.md`](MCP-INSTALL-AI.md)**
+(사전 점검 → unit 검토 → sudo 핸드오프 → 검증 → 키 발급/전달 → 클라이언트 설정 → 업그레이드/제거).
+
 - `scripts/install.sh`(허브 본체)에는 MCP가 포함되지 않습니다 — MCP는 별도 설치입니다.
-- `install-remote.sh`는 N100의 저장소 경로(`/home/hyunu/projects/service_hub`)와
-  tailnet IP(`100.85.245.79`)가 하드코딩되어 있습니다. 다른 호스트에서는
-  `mcp-server/deploy/hub-mcp.service`의 경로/주소를 수정해 사용하세요.
+- `install-remote.sh`는 `REPO_DIR`, `MCP_USER`, `MCP_HOST`, `MCP_PORT`, `HUB_URL`을
+  환경변수로 받습니다(기본값은 현재 호스트 기준). 다른 호스트에서도 그대로 사용할 수 있습니다.
 
 운영:
 
