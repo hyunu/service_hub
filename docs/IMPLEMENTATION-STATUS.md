@@ -3,6 +3,12 @@
 최종 갱신: 2026-11-23 (미사용 컨테이너 일괄 정리 API/UI 추가)
 
 ## 완료
+- **보호 정책 변경 (2026-11-23)**: 사용자 요청("서비스허브만 보호")으로
+  `/srv/service-hub/.env`의 `HUB_PROTECTED_CONTAINERS`/`HUB_PROTECTED_PROJECTS`를 비웠다.
+  백업: `.env.bak-20261123-062402`. backend 재생성 후 `asset-nest` `actions_allowed=true`,
+  허브 자신(`com.hub.self`/`service-hub`)은 그대로 `protected_reason` 유지.
+  컨테이너 상태/볼륨은 무변경. ※ 보호 목록은 컨테이너 개별 시작/정지/제거에도 공유되므로
+  assetnest 컨테이너의 개별 조작도 함께 허용된다.
 - **Phase 0**: 환경 조사(개발 머신 macOS / Docker 29.4.3, 기존 컨테이너 19개),
   ARCHITECTURE / SECURITY / ENVIRONMENT-INVENTORY / IMPLEMENTATION-PLAN / REQUIREMENTS 문서.
 - **Phase 1 (읽기 전용)**:
