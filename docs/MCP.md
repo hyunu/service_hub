@@ -154,6 +154,10 @@ curl -X POST -H "X-API-Key: $HUB_API_KEY" -H "Content-Type: application/gzip" \
 
 ## 4. 클라이언트 설정
 
+> 대상 PC의 AI가 스스로 준비하도록 하려면 [`docs/AI-ONBOARDING.md`](AI-ONBOARDING.md)를 읽히고,
+> `./scripts/ai-onboard.sh --dry-run` → `--client opencode|cursor` 를 실행하게 하세요.
+> 키는 `~/.config/n100-hub/api-key`(0600)에 두고 값은 출력하지 않습니다.
+
 ### OpenCode
 `~/.config/opencode/opencode.jsonc`
 ```jsonc

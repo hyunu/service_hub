@@ -45,6 +45,15 @@ cd cli && uv sync && uv run hub status
 
 AI 코딩 도구가 개발 결과를 허브에 직접 등록·배포 요청할 수 있다.
 
+**대상 PC에서 AI가 스스로 준비하게 하려면** → [docs/AI-ONBOARDING.md](docs/AI-ONBOARDING.md) 를 AI에게 읽힌다.
+(키 발급 → 클라이언트 설정 → 검증 → 서비스 생성/배포까지 한 문서)
+
+```bash
+# 원샷 온보딩 (키는 ~/.config/n100-hub/api-key 또는 HUB_API_KEY)
+./scripts/ai-onboard.sh --dry-run
+./scripts/ai-onboard.sh --client opencode      # 또는 cursor / print
+```
+
 ```bash
 # 1) 대시보드 Settings → API 키 에서 키 발급 (평문은 1회만 표시)
 # 2) MCP 서버 실행 (stdio)
@@ -62,6 +71,8 @@ cd mcp-server && uv sync && uv run hub-mcp --print-config
   }
 }
 ```
+
+원격(HTTP)만 쓰는 PC에서 소스를 올릴 때는 `./scripts/hub-source-upload.sh <service-id> <project-dir>`.
 
 제공 도구: 상태/서비스/컨테이너/포트 조회, `service.yaml` 등록, 미관리 컨테이너 연결,
 배포 계획/실행/상태. 배포는 기존 잠금(`HUB_ENABLE_DEPLOY`)을 그대로 따른다.

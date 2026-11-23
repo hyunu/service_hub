@@ -79,6 +79,12 @@ services:
       # 프런트엔드는 HUB_BIND 를 따른다. Docker 소켓은 마운트하지 않는다.
       # 기본 루프백. tailnet 전용 공개는 HUB_BIND=<tailscale IP> 로 설정한다.
       - "${HUB_BIND:-127.0.0.1}:8421:80"
+    volumes:
+      # AI 온보딩 문서/스크립트를 tailnet에서 읽기 전용으로 제공한다.
+      # (대상 PC에 저장소가 없어도 AI가 이 URL만 읽고 준비할 수 있게 한다)
+      # 디렉터리 마운트라 파일 갱신이 재생성 없이 바로 반영된다.
+      - ./docs:/usr/share/nginx/html/docs:ro
+      - ./scripts:/usr/share/nginx/html/scripts:ro
     labels:
       com.hub.managed: "true"
       com.hub.self: "true"
