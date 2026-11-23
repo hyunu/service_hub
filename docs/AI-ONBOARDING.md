@@ -161,7 +161,8 @@ uv run hub-mcp --print-config    # 설정 골격 확인 (키 플레이스홀더)
 
 ```bash
 curl -fsS http://100.85.245.79:8421/scripts/hub-source-upload.sh -o /tmp/hub-source-upload.sh
-bash /tmp/hub-source-upload.sh my-app /path/to/project
+HUB_URL=http://100.85.245.79:8420/api/v1 \
+  bash /tmp/hub-source-upload.sh my-app /path/to/project
 ```
 
 또는 직접:
@@ -279,6 +280,7 @@ hub_deployments_list(service_id) # 이력, 롤백 대상 확인
 | `409 plan_not_ready` | 포트/env/계획 문제 | `impact` 확인, 포트 재선택 |
 | `503 deploy_disabled` | 서버 게이트 꺼짐 | AI가 임의로 켜지 말고 사용자에게 보고 |
 | `403 protected_container` | 보호 대상 서비스 | 사용자 승인 없이 보호 해제 금지 |
+| `opencode.jsonc` 파싱 실패 | 기존 파일에 주석(`//`)이 있음 | `--client print`로 출력해 수동 병합(백업 후) |
 
 ---
 

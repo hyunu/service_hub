@@ -11,6 +11,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$REPO_DIR/mcp-server" ] || REPO_DIR=""   # 저장소 없이 내려받아 실행하는 경우
 KEY_FILE="${HOME}/.config/n100-hub/api-key"
 HUB_URL=""
 HUB_HOST=""
@@ -89,6 +90,9 @@ esac
 if [ "$MODE" = "local" ] && ! command -v uv >/dev/null 2>&1; then
   fail "local 모드는 uv 가 필요합니다. uv 설치 또는 --mode remote"
 fi
+if [ "$MODE" = "local" ] && [ -z "$REPO_DIR" ]; then
+  fail "local 모드는 저장소(mcp-server)가 필요합니다. --mode remote 또는 저장소 경로에서 실행"
+fi
 
 case "$CLIENT" in
   opencode) CONFIG="${HOME}/.config/opencode/opencode.jsonc" ;;
@@ -98,7 +102,7 @@ case "$CLIENT" in
 esac
 
 log "== 온보딩 설정 =="
-log "  repo   : $REPO_DIR"
+log "  repo   : ${REPO_DIR:-(없음 — remote 전용)}"
 log "  hub    : $HUB_URL"
 log "  mcp    : $MCP_URL"
 log "  mode   : $MODE"
