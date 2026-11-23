@@ -247,6 +247,10 @@ export interface ServiceDetail extends ServiceListItem {
   components: ServiceComponent[];
   warnings?: ServiceWarning[];
   notes?: string | null;
+  /** 서비스 단위 중지/재시작 가능 여부 (게이트 + 보호 대상 아님 + 컨테이너 존재) */
+  actions_allowed?: boolean;
+  /** 조작이 불가한 사유 (가능하면 null) */
+  actions_reason?: string | null;
 }
 
 export interface ServiceListQuery {
@@ -1047,6 +1051,48 @@ export function updateService(
   body: ServiceUpdatePayload,
 ): Promise<ServiceDetail> {
   return send<ServiceDetail>(`/services/${encodeURIComponent(id)}`, "PATCH", body);
+}
+
+export interface ServiceActionResultItem {
+  container_id: string;
+  name: string;
+  component: string | null;
+  reason?: string;
+  code?: string;
+  stage?: string;
+}
+
+export interface ServiceActionResponse {
+  ok: boolean;
+  service_id: string;
+  action: "stop" | "restart";
+  stopped: number;
+  started: number;
+  results: {
+    stopped?: ServiceActionResultItem[];
+    started?: ServiceActionResultItem[];
+    skipped: ServiceActionResultItem[];
+    failed: ServiceActionResultItem[];
+  };
+  runtime_changed: boolean;
+}
+
+/** 서비스의 컨테이너를 모두 중지한다 (보호 대상 포함 시 403, confirmed 필수). */
+export function stopService(id: string): Promise<ServiceActionResponse> {
+  return send<ServiceActionResponse>(
+    `/services/${encodeURIComponent(id)}/stop`,
+    "POST",
+    { confirmed: true },
+  );
+}
+
+/** 서비스의 컨테이너를 순차 재시작한다 (중지된 컨테이너는 시작). */
+export function restartService(id: string): Promise<ServiceActionResponse> {
+  return send<ServiceActionResponse>(
+    `/services/${encodeURIComponent(id)}/restart`,
+    "POST",
+    { confirmed: true },
+  );
 }
 
 export function deleteService(id: string): Promise<DeleteResult> {

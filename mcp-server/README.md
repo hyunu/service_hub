@@ -107,6 +107,8 @@ sudo ./mcp-server/deploy/install-remote.sh
 | `hub_service_apply` | service.yaml로 레지스트리 등록/갱신 (런타임 무변경) |
 | `hub_service_set_endpoint_auth` | 엔드포인트 인증 메타데이터(참조) 기록 |
 | `hub_service_sync_source` | **로컬 소스 디렉터리를 허브로 업로드** (SSH 불필요) |
+| `hub_service_stop` | 서비스 컨테이너 전체 중지 (`confirmed=true`, 보호 대상 시 거부) |
+| `hub_service_restart` | 서비스 컨테이너 순차 재시작 (`confirmed=true`, 중지 상태면 기동) |
 | `hub_orphans_attach` | 미관리 컨테이너를 서비스에 수동 연결 |
 | `hub_deploy_plan` | 배포 계획 생성 (변경 없음) |
 | `hub_deploy_apply` | 배포 실행 (`confirmed=true` 필요) |

@@ -13,6 +13,8 @@ import {
   Pencil,
   RefreshCw,
   Rocket,
+  RotateCw,
+  Square,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -29,6 +31,8 @@ import {
   fetchServiceEndpoints,
   fetchServiceResources,
   isApiError,
+  restartService,
+  stopService,
   updateService,
   type Deployment,
   type HubEvent,
@@ -124,6 +128,9 @@ export default function ServiceDetail() {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [deleteMsg, setDeleteMsg] = React.useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = React.useState(false);
+  // 서비스 단위 중지/재시작
+  const [actionBusy, setActionBusy] = React.useState(false);
+  const [actionMsg, setActionMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -142,8 +149,45 @@ export default function ServiceDetail() {
     void load();
   }, [load]);
 
-  const doDelete = async () => {
-    setDeleteBusy(true);
+  const runServiceAction = async (action: "stop" | "restart") => {
+    if (!service) return;
+    const label = action === "stop" ? "중지" : "재시작";
+    const detail =
+      action === "stop"
+        ? `서비스 '${service.name}'의 실행 중 컨테이너 ${service.containers.running}개를 모두 중지합니다.`
+        : `서비스 '${service.name}'의 컨테이너를 순차적으로 재시작합니다 (stop→start, 중지된 컨테이너는 시작).`;
+    if (!window.confirm(`${detail}\n계속할까요?`)) return;
+    setActionBusy(true);
+    setActionMsg(null);
+    try {
+      const res =
+        action === "stop"
+          ? await stopService(service.id)
+          : await restartService(service.id);
+      const failed = res.results.failed.length;
+      const skipped = res.results.skipped.length;
+      setActionMsg({
+        ok: res.ok,
+        text:
+          `${label} ${res.ok ? "완료" : "일부 실패"} — ` +
+          (action === "stop"
+            ? `중지 ${res.stopped}개`
+            : `시작 ${res.started}개 / 중지 ${res.stopped}개`) +
+          (skipped ? ` · 건너뜀 ${skipped}개` : "") +
+          (failed ? ` · 실패 ${failed}개` : ""),
+      });
+      await load();
+    } catch (e) {
+      setActionMsg({
+        ok: false,
+        text: isApiError(e) ? e.message : `${label}에 실패했습니다.`,
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const doDelete = async () => {    setDeleteBusy(true);
     setDeleteMsg(null);
     try {
       const res = await deleteService(serviceId);
@@ -194,6 +238,26 @@ export default function ServiceDetail() {
               <RefreshCw className="h-3.5 w-3.5" />
               새로고침
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runServiceAction("stop")}
+              disabled={actionBusy || service.actions_allowed === false}
+              title={service.actions_reason ?? "서비스의 모든 컨테이너를 중지합니다"}
+            >
+              <Square className="h-3.5 w-3.5" />
+              중지
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void runServiceAction("restart")}
+              disabled={actionBusy || service.actions_allowed === false}
+              title={service.actions_reason ?? "서비스의 컨테이너를 순차 재시작합니다"}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              재시작
+            </Button>
             <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
               <Trash2 className="h-3.5 w-3.5" />
               삭제
@@ -216,6 +280,25 @@ export default function ServiceDetail() {
             : " 배포 이력 없음"}
         </span>
       </div>
+
+      {service.actions_reason ? (
+        <p className="mb-3 text-xs text-muted-foreground" role="note">
+          서비스 중지/재시작 불가: {service.actions_reason}
+        </p>
+      ) : null}
+
+      {actionMsg ? (
+        <div
+          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+            actionMsg.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+          }`}
+          role="alert"
+        >
+          {actionMsg.text}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mb-3">

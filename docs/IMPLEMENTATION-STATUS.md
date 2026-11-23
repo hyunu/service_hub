@@ -292,6 +292,16 @@
       태그 이미지·볼륨·네트워크·빌드 캐시는 무변경.
     - 감사 로그: `container.remove`(bulk) 3건, `image.remove` 79건, `cleanup.run` 1건.
     - 사후: 컨테이너 18개(전부 기존 서비스), `hub-backend` healthy, 대시보드/ MCP 200.
+- **서비스 단위 중지/재시작 (2026-11-23)**:
+  - `POST /api/v1/services/{id}/stop`, `POST /api/v1/services/{id}/restart`.
+    서비스에 연결된 컨테이너 전체를 대상으로 순차 실행(기존 container_start/stop 재사용).
+  - 안전장치: `HUB_ENABLE_DOCKER_ACTIONS` 게이트, `confirmed=true`, 보호 대상 포함 시
+    전체 거부(부분 실행 없음), 이미 중지/사라진 컨테이너는 `skipped` 사유 반환.
+  - `restart`는 실행 중이면 stop→start, 중지 상태면 start — 중지된 서비스 기동 효과.
+  - `GET /services/{id}`에 `actions_allowed`/`actions_reason` 추가 → UI 버튼 사전 비활성화.
+  - UI: 서비스 상세 헤더 `중지`/`재시작` 버튼(확인 다이얼로그 + 결과/사유 표시).
+  - MCP: `hub_service_stop`, `hub_service_restart`(confirmed=true).
+  - 테스트: `backend/tests/test_service_actions.py` 7건, MCP 3건, 프론트 API 계약 2건.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.

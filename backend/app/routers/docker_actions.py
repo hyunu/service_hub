@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import Container, ContainerAssignment
+from ..models import Container, ContainerAssignment, Service
 from ..security import HubError, get_read_actor, require_auth
 from ..services.events import record_audit
 from ..services.grouping import resolve_container
@@ -41,6 +42,11 @@ class CleanupRequest(BaseModel):
     container_ids: list[str] = Field(default_factory=list, max_length=200)
     confirm: str = Field(min_length=1, max_length=64)
     remove_dangling_images: bool = True
+
+
+class ServiceActionRequest(BaseModel):
+    """서비스 단위 중지/재시작 요청. 실수 방지를 위해 명시 확인을 요구한다."""
+    confirmed: bool = False
 
 
 def _require_enabled():
@@ -180,6 +186,168 @@ def remove_container(container_id: str, body: RemoveRequest,
     db.commit()
     return {"ok": True, "container_id": container_id, "action": "remove",
             "runtime_changed": True}
+
+
+def _service_rows(db: Session, service_id: str) -> list[Container]:
+    return list(db.execute(
+        select(Container).where(Container.service_id == service_id)
+        .order_by(Container.component_name, Container.name)).scalars())
+
+
+def _service_guard(db: Session, service_id: str, settings) -> tuple[Service, list[Container]]:
+    """서비스 조작 전 공통 가드 — 존재/구성/보호 대상 확인. 하나라도 위반하면 전체 거부."""
+    svc = db.get(Service, service_id)
+    if svc is None:
+        raise HubError(status_code=404, detail=f"서비스 '{service_id}'를 찾을 수 없습니다",
+                       code="service_not_found")
+    rows = _service_rows(db, service_id)
+    if not rows:
+        raise HubError(status_code=409, detail="서비스에 연결된 컨테이너가 없습니다",
+                       code="service_no_containers")
+    protected = [(r.name, protection_reason(r, settings)) for r in rows]
+    protected = [(name, why) for name, why in protected if why]
+    if protected:
+        names = ", ".join(name for name, _ in protected[:3])
+        raise HubError(status_code=403,
+                       detail=f"보호된 컨테이너가 포함되어 서비스 조작을 거부합니다: {names}",
+                       code="protected_container")
+    return svc, rows
+
+
+@router.post("/services/{service_id}/stop")
+def stop_service(service_id: str, body: ServiceActionRequest,
+                 db: Session = Depends(get_db),
+                 actor: str = Depends(get_read_actor)):
+    """서비스의 컨테이너를 **모두** 중지한다 (서비스 단위 조작).
+
+    - 게이트(`HUB_ENABLE_DOCKER_ACTIONS`) + `confirmed=true` 필요.
+    - 보호 대상/허브 자신이 하나라도 포함되면 **아무것도 변경하지 않고** 403.
+    - 이미 중지된 컨테이너는 건너뛰고 결과에 사유를 남긴다.
+    """
+    from ..dependencies import get_gateway
+
+    settings = _require_enabled()
+    if not body.confirmed:
+        raise HubError(status_code=409, detail="서비스 중지는 confirmed=true 가 필요합니다",
+                       code="confirmation_required")
+    svc, rows = _service_guard(db, service_id, settings)
+    gateway = get_gateway()
+    snaps = gateway.list_containers()
+    if snaps is None:
+        raise HubError(status_code=409, detail="Docker에 연결할 수 없습니다",
+                       code="docker_unavailable")
+    live = {s.container_id: s for s in snaps}
+
+    stopped: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+    for row in rows:
+        base = {"container_id": row.container_id, "name": row.name,
+                "component": row.component_name}
+        snap = live.get(row.container_id)
+        if snap is None:
+            skipped.append({**base, "reason": "Docker에서 컨테이너를 찾을 수 없습니다",
+                            "code": "container_missing"})
+            continue
+        if snap.state != "running":
+            skipped.append({**base, "reason": "이미 중지되어 있습니다",
+                            "code": "already_stopped"})
+            continue
+        res = gateway.container_stop(row.container_id)
+        if not res.get("ok"):
+            failed.append({**base, "reason": res.get("error") or "알 수 없는 오류"})
+            continue
+        row.state = "exited"
+        row.status_text = "Exited (stopped via hub)"
+        if row.management_state == "managed":
+            row.management_state = "stopped"
+        record_audit(db, actor, "container.stop", target=row.container_id,
+                     detail={"name": row.name, "service_id": service_id, "bulk": True})
+        stopped.append(base)
+
+    record_audit(db, actor, "service.stop", target=service_id,
+                 detail={"service_id": service_id, "stopped": len(stopped),
+                         "skipped": len(skipped), "failed": len(failed)})
+    db.commit()
+    return {"ok": not failed, "service_id": service_id, "action": "stop",
+            "stopped": len(stopped), "started": 0,
+            "results": {"stopped": stopped, "skipped": skipped, "failed": failed},
+            "runtime_changed": bool(stopped)}
+
+
+@router.post("/services/{service_id}/restart")
+def restart_service(service_id: str, body: ServiceActionRequest,
+                    db: Session = Depends(get_db),
+                    actor: str = Depends(get_read_actor)):
+    """서비스의 컨테이너를 순차적으로 재시작한다.
+
+    - 실행 중: stop → start, 이미 중지됨: start (중지된 서비스를 기동하는 효과).
+    - 한 컨테이너씩 처리해 전체 동시 다운타임을 피한다.
+    - 보호 대상이 포함되면 아무것도 변경하지 않고 403.
+    """
+    from ..dependencies import get_gateway
+
+    settings = _require_enabled()
+    if not body.confirmed:
+        raise HubError(status_code=409, detail="서비스 재시작은 confirmed=true 가 필요합니다",
+                       code="confirmation_required")
+    svc, rows = _service_guard(db, service_id, settings)
+    gateway = get_gateway()
+    snaps = gateway.list_containers()
+    if snaps is None:
+        raise HubError(status_code=409, detail="Docker에 연결할 수 없습니다",
+                       code="docker_unavailable")
+    live = {s.container_id: s for s in snaps}
+
+    started: list[dict] = []
+    stopped: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+    for row in rows:
+        base = {"container_id": row.container_id, "name": row.name,
+                "component": row.component_name}
+        snap = live.get(row.container_id)
+        if snap is None:
+            skipped.append({**base, "reason": "Docker에서 컨테이너를 찾을 수 없습니다",
+                            "code": "container_missing"})
+            continue
+        if snap.state == "running":
+            res = gateway.container_stop(row.container_id)
+            if not res.get("ok"):
+                failed.append({**base, "stage": "stop",
+                               "reason": res.get("error") or "알 수 없는 오류"})
+                continue
+            row.state = "exited"
+            row.status_text = "Exited (restarting via hub)"
+            record_audit(db, actor, "container.stop", target=row.container_id,
+                         detail={"name": row.name, "service_id": service_id,
+                                 "bulk": True, "restart": True})
+            stopped.append(base)
+
+        res = gateway.container_start(row.container_id)
+        if not res.get("ok"):
+            failed.append({**base, "stage": "start",
+                           "reason": res.get("error") or "알 수 없는 오류"})
+            continue
+        row.state = "running"
+        row.status_text = "Up (restarted via hub)"
+        if row.management_state == "stopped":
+            row.management_state = "managed"
+        record_audit(db, actor, "container.start", target=row.container_id,
+                     detail={"name": row.name, "service_id": service_id,
+                             "bulk": True, "restart": True})
+        started.append(base)
+
+    record_audit(db, actor, "service.restart", target=service_id,
+                 detail={"service_id": service_id, "started": len(started),
+                         "stopped": len(stopped), "skipped": len(skipped),
+                         "failed": len(failed)})
+    db.commit()
+    return {"ok": not failed, "service_id": service_id, "action": "restart",
+            "stopped": len(stopped), "started": len(started),
+            "results": {"stopped": stopped, "started": started,
+                        "skipped": skipped, "failed": failed},
+            "runtime_changed": bool(started or stopped)}
 
 
 @router.post("/containers/cleanup")

@@ -29,7 +29,7 @@ sudo systemctl restart hub-mcp
 sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
-## 2. 도구 (26개)
+## 2. 도구 (28개)
 
 ### 조회
 | 도구 | 설명 |
@@ -63,6 +63,8 @@ sudo journalctl -u hub-mcp -n 50 --no-pager
 | `hub_deploy_plan` | 배포 계획 (컨테이너 무변경) |
 | `hub_deploy_apply` | 배포 실행 (`confirmed=true`, 게이트 필요) |
 | `hub_deploy_rollback` | 성공 배포 시점으로 롤백 (`confirmed=true`) |
+| `hub_service_stop` | 서비스 컨테이너 전체 중지 (`confirmed=true`, 보호 대상 시 403) |
+| `hub_service_restart` | 서비스 컨테이너 순차 재시작 (`confirmed=true`, 중지 상태면 기동) |
 
 ## 3. 배포 워크플로 (AI가 따르는 순서)
 
@@ -186,6 +188,8 @@ claude mcp add --transport http n100-service-hub http://100.85.245.79:8422/mcp
 - `hub_service_scaffold`는 경로/파일명이 고정(`/srv/services/<id>/{service.yaml,compose.yaml}`)이며,
   덮어쓰기에는 `overwrite=true` + `confirm=<id>`가 필요합니다.
 - `hub_deploy_apply`/`hub_deploy_rollback`은 `confirmed=true` 없이는 실행되지 않습니다.
+- `hub_service_stop`/`hub_service_restart`도 `confirmed=true`가 필요하며, 보호 대상이 포함된
+  서비스는 아무것도 변경하지 않고 403으로 거부됩니다.
 - DB/볼륨 변경은 롤백 대상이 아닙니다(요구사항 §13.4).
 - MCP HTTP는 tailnet에만 바인드합니다. 외부 공개가 필요하면 방화벽/터널 정책을 먼저 검토하세요.
 

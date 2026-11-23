@@ -510,8 +510,25 @@ def get_service(service_id: str, db: Session = Depends(get_db)):
     summary = _summary(db, svc)
     missing = [c.name for c in svc.components if c.required
                and not any(r.component_name == c.name and r.state == "running" for r in rows)]
+    # 서비스 단위 중지/재시작 가능 여부 — UI가 버튼을 미리 비활성화할 수 있게 한다.
+    from ..services.protection import protection_reason
+
+    settings = get_settings()
+    protected = [r.name for r in rows if protection_reason(r, settings)]
+    if not settings.enable_docker_actions:
+        actions_reason = ("Docker 조작이 비활성화되어 있습니다 "
+                          "(HUB_ENABLE_DOCKER_ACTIONS=false)")
+    elif not rows:
+        actions_reason = "서비스에 연결된 컨테이너가 없습니다"
+    elif protected:
+        actions_reason = ("보호된 컨테이너가 포함되어 있습니다: "
+                          + ", ".join(protected[:3]))
+    else:
+        actions_reason = None
     return {
         **summary,
+        "actions_allowed": actions_reason is None,
+        "actions_reason": actions_reason,
         "repository_url": svc.repository_url, "branch": svc.branch,
         "deployment_type": svc.deployment_type, "deployment_path": svc.deployment_path,
         "compose_file": svc.compose_file, "documentation": svc.documentation,

@@ -46,6 +46,8 @@ server = MCPServer(
         "서비스에 접속할 때는 hub_service_access 로 URL·인증 방식·자격 증명 "
         "참조를 먼저 확인하라(비밀값은 반환되지 않는다). "
         "원격(HTTP) 모드는 요청마다 X-API-Key 가 필요하다."
+        "허브 자신(`service-hub`/`com.hub.self`)과 보호 대상은 조작할 수 없다."
+        "서비스 중지/재시작은 hub_service_stop/hub_service_restart(confirmed=true)로 수행한다."
     ),
 )
 
@@ -369,6 +371,45 @@ def hub_service_apply(service_id: str, spec: dict, dry_run: bool = False) -> dic
         return {"service": result, "runtime_unchanged": True}
 
     return _run(_do)
+
+
+@server.tool()
+def hub_service_stop(service_id: str, confirmed: bool = False) -> dict:
+    """등록된 서비스의 컨테이너를 **모두** 중지한다 (서비스 단위).
+
+    보호 대상(허브 자신·HUB_PROTECTED_*)이 포함되면 아무것도 변경하지 않고 403.
+    이미 중지된 컨테이너는 건너뛰고 결과에 사유를 남긴다.
+    되돌리려면 hub_service_restart 를 사용한다.
+
+    Args:
+        service_id: 서비스 ID
+        confirmed: true 여야 실행한다
+    """
+    if not confirmed:
+        return {"ok": False,
+                "error": "서비스를 중지하려면 confirmed=true 를 명시해야 합니다.",
+                "code": "confirmation_required"}
+    return _run(lambda: _client().post(
+        f"/services/{service_id}/stop", {"confirmed": True}, timeout=180))
+
+
+@server.tool()
+def hub_service_restart(service_id: str, confirmed: bool = False) -> dict:
+    """등록된 서비스의 컨테이너를 순차적으로 재시작한다 (stop→start).
+
+    이미 중지된 컨테이너는 start 하므로, 중지된 서비스를 기동하는 효과도 있다.
+    보호 대상이 포함되면 아무것도 변경하지 않고 403.
+
+    Args:
+        service_id: 서비스 ID
+        confirmed: true 여야 실행한다
+    """
+    if not confirmed:
+        return {"ok": False,
+                "error": "서비스를 재시작하려면 confirmed=true 를 명시해야 합니다.",
+                "code": "confirmation_required"}
+    return _run(lambda: _client().post(
+        f"/services/{service_id}/restart", {"confirmed": True}, timeout=180))
 
 
 SOURCE_SKIP_NAMES = {".git", "node_modules", ".venv", "venv", "__pycache__",

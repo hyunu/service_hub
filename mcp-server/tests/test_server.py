@@ -17,7 +17,7 @@ def test_tools_are_exposed():
         "hub_service_apply", "hub_ports_available", "hub_port_reserve", "hub_port_release",
         "hub_containers_list", "hub_orphans_list", "hub_orphans_attach",
         "hub_ports_list", "hub_service_logs", "hub_deploy_plan", "hub_deploy_apply",
-        "hub_deploy_status",
+        "hub_deploy_status", "hub_service_stop", "hub_service_restart",
     }
     assert required <= names
     # 모든 도구는 설명을 가져야 한다 (AI가 선택 근거로 사용)
@@ -258,3 +258,25 @@ def test_deployment_guide_resource_and_prompt_are_exposed():
 def test_deployment_guide_is_in_tool_list():
     tools = asyncio.run(srv.server.list_tools())
     assert any(t.name == "hub_deployment_guide" for t in tools)
+
+
+def test_service_stop_and_restart_require_confirmation(fake):
+    out = srv.hub_service_stop("demo", confirmed=False)
+    assert out["ok"] is False and out["code"] == "confirmation_required"
+    out2 = srv.hub_service_restart("demo", confirmed=False)
+    assert out2["ok"] is False and out2["code"] == "confirmation_required"
+    assert fake.created == []
+
+
+def test_service_stop_calls_endpoint(fake):
+    out = srv.hub_service_stop("demo", confirmed=True)
+    assert out["ok"] is True
+    assert fake.created[-1] == {"path": "/services/demo/stop",
+                                "payload": {"confirmed": True}}
+
+
+def test_service_restart_calls_endpoint(fake):
+    out = srv.hub_service_restart("gyeol", confirmed=True)
+    assert out["ok"] is True
+    assert fake.created[-1] == {"path": "/services/gyeol/restart",
+                                "payload": {"confirmed": True}}

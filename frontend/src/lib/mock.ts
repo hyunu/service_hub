@@ -553,6 +553,8 @@ const serviceDetail = (id: string): ServiceDetail | null => {
         : s.status === "warn"
           ? [{ level: "warning", message: "필수 컨테이너 1개가 중지 상태입니다." }]
           : [],
+    actions_allowed: true,
+    actions_reason: null,
   };
 };
 
@@ -630,6 +632,26 @@ export async function mockRequest(
     };
     services.push(created);
     return json(created, 201);
+  }
+
+  // 서비스 단위 중지/재시작 (mock: 상태만 흉내낸다)
+  const svcAction = path.match(/^\/services\/([^/]+)\/(stop|restart)$/);
+  if (svcAction && method === "POST") {
+    const id = decodeURIComponent(svcAction[1]);
+    const action = svcAction[2] as "stop" | "restart";
+    const affected = containers.filter((c) => c.service_id === id);
+    for (const c of affected) {
+      c.state = action === "stop" ? "exited" : "running";
+    }
+    return json({
+      ok: true,
+      service_id: id,
+      action,
+      stopped: action === "stop" ? affected.length : affected.length,
+      started: action === "restart" ? affected.length : 0,
+      results: { stopped: [], started: [], skipped: [], failed: [] },
+      runtime_changed: affected.length > 0,
+    });
   }
 
   const svcMatch = path.match(/^\/services\/([^/]+)(?:\/(containers|endpoints|logs|events))?$/);
