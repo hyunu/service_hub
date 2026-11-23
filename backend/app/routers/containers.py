@@ -160,6 +160,17 @@ def _dict(row: Container, detail: bool = False, manual: bool = False) -> dict:
 
     settings = get_settings()
     reason = protection_reason(row, settings)
+    if reason:
+        cleanup_reason = reason
+    elif not settings.enable_docker_actions:
+        cleanup_reason = ("Docker 조작이 비활성화되어 있습니다 "
+                          "(HUB_ENABLE_DOCKER_ACTIONS=false)")
+    elif row.management_state != "unmanaged":
+        cleanup_reason = "서비스에 연결된 컨테이너는 일괄 정리 대상이 아닙니다"
+    elif row.state == "running":
+        cleanup_reason = "실행 중인 컨테이너는 먼저 중지해야 합니다"
+    else:
+        cleanup_reason = None
     base = {
         "container_id": row.container_id,
         "container_id_short": row.container_id[:12],
@@ -172,6 +183,8 @@ def _dict(row: Container, detail: bool = False, manual: bool = False) -> dict:
         "observed_at": row.observed_at,
         "protected_reason": reason,
         "actions_allowed": bool(settings.enable_docker_actions) and reason is None,
+        "cleanup_eligible": cleanup_reason is None,
+        "cleanup_reason": cleanup_reason,
     }
     if detail:
         from ..dependencies import get_gateway

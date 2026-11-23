@@ -328,6 +328,10 @@ export interface ContainerListItem {
   protected_reason?: string | null;
   /** 시작/정지/제거 가능 여부 (게이트 열림 + 보호 대상 아님) */
   actions_allowed?: boolean;
+  /** 일괄 정리 후보 여부 (게이트 열림 + 미관리 + 중지 + 보호 대상 아님) */
+  cleanup_eligible?: boolean;
+  /** 일괄 정리에서 제외되는 사유 (후보면 null) */
+  cleanup_reason?: string | null;
 }
 
 export interface ContainerMount {
@@ -1287,6 +1291,38 @@ export function removeImage(
   confirm: string,
 ): Promise<{ ok: boolean; image_id: string; action: string }> {
   return send(`/images/${encodeURIComponent(id)}/remove`, "POST", { confirm });
+}
+
+export interface CleanupSkip {
+  container_id: string;
+  name?: string | null;
+  reason: string;
+  code: string;
+}
+
+export interface CleanupResult {
+  ok: boolean;
+  removed: Array<{ container_id: string; name: string; image?: string | null }>;
+  skipped: CleanupSkip[];
+  images_removed: Array<{ image_id: string; size_mb?: number | null }>;
+  images_skipped: Array<{ image_id: string; reason: string }>;
+  freed_image_mb: number;
+  runtime_changed: boolean;
+}
+
+/**
+ * 중지된 미관리 컨테이너 + dangling 이미지를 일괄 정리한다.
+ * 실행 중/보호 대상/서비스 소속은 서버가 건너뛰고 사유를 돌려준다.
+ */
+export function cleanupUnusedContainers(
+  containerIds: string[],
+  opts: { removeDanglingImages?: boolean } = {},
+): Promise<CleanupResult> {
+  return send<CleanupResult>("/containers/cleanup", "POST", {
+    container_ids: containerIds,
+    confirm: "cleanup",
+    remove_dangling_images: opts.removeDanglingImages ?? true,
+  });
 }
 
 /** 배포 시점 스냅샷으로 되돌려 재배포한다 (성공한 배포만 가능). */

@@ -673,13 +673,46 @@ export async function mockRequest(
   if (path === "/containers" && method === "GET") {
     const st = query.get("state");
     const mg = query.get("management");
-    const list = containers.filter((c) => {
-      if (st === "running" && c.state !== "running") return false;
-      if (st === "stopped" && c.state === "running") return false;
-      if (mg && c.management_state !== mg) return false;
-      return true;
-    });
+    const list = containers
+      .filter((c) => {
+        if (st === "running" && c.state !== "running") return false;
+        if (st === "stopped" && c.state === "running") return false;
+        if (mg && c.management_state !== mg) return false;
+        return true;
+      })
+      .map((c) => ({
+        ...c,
+        cleanup_eligible:
+          c.management_state === "unmanaged" &&
+          c.state !== "running" &&
+          !c.protected_reason,
+      }));
     return json(list);
+  }
+  if (path === "/containers/cleanup" && method === "POST") {
+    const ids = new Set<string>((body.container_ids as string[]) ?? []);
+    const removed: Array<{ container_id: string; name: string; image: string }> = [];
+    for (let i = containers.length - 1; i >= 0; i--) {
+      const c = containers[i];
+      if (
+        ids.has(c.id) &&
+        c.state !== "running" &&
+        c.management_state === "unmanaged" &&
+        !c.protected_reason
+      ) {
+        removed.push({ container_id: c.id, name: c.name, image: c.image });
+        containers.splice(i, 1);
+      }
+    }
+    return json({
+      ok: true,
+      removed,
+      skipped: [],
+      images_removed: [],
+      images_skipped: [],
+      freed_image_mb: 0,
+      runtime_changed: removed.length > 0,
+    });
   }
   const cMatch = path.match(/^\/containers\/([^/]+)$/);
   if (cMatch) {

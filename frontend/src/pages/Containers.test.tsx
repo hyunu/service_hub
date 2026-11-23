@@ -28,10 +28,12 @@ vi.mock("../lib/api", async () => {
     fetchImages: vi.fn(async () => ({ items: [], actions_enabled: true })),
     fetchServices: vi.fn(async () => []),
     fetchOrphans: vi.fn(async () => []),
+    cleanupUnusedContainers: vi.fn(),
   };
 });
 
 import {
+  cleanupUnusedContainers,
   fetchContainer,
   fetchContainers,
   fetchContainerResources,
@@ -340,5 +342,62 @@ describe("Containers 상세 — 조작 버튼 보호", () => {
     const start = within(drawer).getByRole("button", { name: "시작" });
     expect(start).toBeDisabled();
     expect(start).toHaveAttribute("title", "HUB_ENABLE_DOCKER_ACTIONS=false");
+  });
+});
+
+describe("Containers 목록 — 미사용 정리", () => {
+  beforeEach(() => {
+    focusRef.value = "";
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("정리 후보만 API로 보내고 결과(제거/확보 용량)를 표시한다", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({
+        id: "c1", name: "old-app", state: "exited", service_id: null,
+        component_name: null, management_state: "unmanaged",
+        cleanup_eligible: true, cleanup_reason: null,
+      }),
+      item({
+        id: "c2", name: "live-app", cleanup_eligible: false,
+        cleanup_reason: "실행 중인 컨테이너는 먼저 중지해야 합니다",
+      }),
+    ]);
+    vi.mocked(cleanupUnusedContainers).mockResolvedValue({
+      ok: true,
+      removed: [{ container_id: "c1", name: "old-app", image: "nginx:alpine" }],
+      skipped: [],
+      images_removed: [{ image_id: "sha256:dead", size_mb: 12 }],
+      images_skipped: [],
+      freed_image_mb: 12,
+      runtime_changed: true,
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("cleanup");
+
+    render(<Containers />);
+
+    const button = await screen.findByRole("button", { name: /미사용 정리/ });
+    expect(button).toHaveTextContent("1");
+    await user.click(button);
+
+    expect(cleanupUnusedContainers).toHaveBeenCalledWith(["c1"], {
+      removeDanglingImages: true,
+    });
+    expect(
+      await screen.findByText(/컨테이너 1개.*이미지 1개.*12 MB/),
+    ).toBeInTheDocument();
+  });
+
+  it("후보가 없으면 정리 버튼이 비활성화된다", async () => {
+    vi.mocked(fetchContainers).mockResolvedValue([
+      item({ id: "c1", name: "live-app", cleanup_eligible: false }),
+    ]);
+    render(<Containers />);
+    const button = await screen.findByRole("button", { name: /미사용 정리/ });
+    expect(button).toBeDisabled();
   });
 });

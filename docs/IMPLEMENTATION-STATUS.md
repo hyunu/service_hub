@@ -1,6 +1,6 @@
 # IMPLEMENTATION STATUS
 
-최종 갱신: 2026-10-22 (N100 실서버 배포·관리자 초기화·인벤토리 정리·MCP/API 키·배포 잠금 해제 완료)
+최종 갱신: 2026-11-23 (미사용 컨테이너 일괄 정리 API/UI 추가)
 
 ## 완료
 - **Phase 0**: 환경 조사(개발 머신 macOS / Docker 29.4.3, 기존 컨테이너 19개),
@@ -273,6 +273,16 @@
     (판정은 `app/services/protection.py`로 단일화) 상세 화면이 사유와 함께 버튼을
     비활성화한다. 실서버 확인: 허브 2개·assetnest 2개 → `actions_allowed=false`,
     `flow-plan-ui`·`pianosync-web` → `true`.
+- **미사용 컨테이너 일괄 정리 (2026-11-23)**:
+  - `POST /api/v1/containers/cleanup`: 중지된 미관리 컨테이너 + dangling(태그 없음·미사용)
+    이미지를 한 번에 정리. 실행 중/서비스 소속/허브 자신/보호 대상은 `skipped` 사유와 함께 제외.
+  - 안전장치: `HUB_ENABLE_DOCKER_ACTIONS` 게이트, 확인 문구 `cleanup`, 명시적 ID만 허용
+    (자동 전체 삭제 없음), 볼륨/네트워크/태그 이미지 무변경, 감사 로그
+    (`container.remove`/`image.remove`/`cleanup.run`).
+  - `GET /containers`에 `cleanup_eligible`/`cleanup_reason` 추가 — UI가 후보만 선택/활성화.
+  - UI: 필터 바 `미사용 정리 (N)`, 선택 바 `선택 정리`, Images `dangling 정리`.
+  - 테스트: `backend/tests/test_container_cleanup.py` 7건 (게이트/확인/보호/서비스 소속/
+    실행 중/이미지 사용 여부/후보 노출), `Containers.test.tsx` 2건.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.

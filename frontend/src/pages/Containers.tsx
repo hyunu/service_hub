@@ -15,6 +15,7 @@ import {
 import {
   attachOrphan,
   attachOrphans,
+  cleanupUnusedContainers,
   containerAction,
   fetchContainer,
   fetchContainerResources,
@@ -579,6 +580,9 @@ export default function Containers() {
   const [bulkComponent, setBulkComponent] = React.useState("");
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkMsg, setBulkMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  // 미사용 정리 (중지된 미관리 컨테이너 + dangling 이미지)
+  const [cleanupBusy, setCleanupBusy] = React.useState(false);
+  const [cleanupMsg, setCleanupMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
 
   // 이미지 관리 (읽기 + 제거)
   const [images, setImages] = React.useState<ImageInfo[]>([]);
@@ -674,6 +678,46 @@ export default function Containers() {
     }
   };
 
+  const runCleanup = async (ids: string[]) => {
+    const typed = window.prompt(
+      `중지된 미관리 컨테이너 ${ids.length}개와 미사용(dangling) 이미지를 제거합니다.\n` +
+        "볼륨·네트워크·태그 있는 이미지는 건드리지 않습니다.\n" +
+        "계속하려면 'cleanup'을 입력하세요.",
+      "",
+    );
+    if (typed === null) return;
+    if (typed !== "cleanup") {
+      setCleanupMsg({ ok: false, text: "확인 문구가 일치하지 않습니다 (cleanup)." });
+      return;
+    }
+    setCleanupBusy(true);
+    setCleanupMsg(null);
+    try {
+      const res = await cleanupUnusedContainers(ids, { removeDanglingImages: true });
+      const parts = [
+        `컨테이너 ${res.removed.length}개`,
+        `이미지 ${res.images_removed.length}개`,
+      ];
+      if (res.freed_image_mb > 0) parts.push(`${res.freed_image_mb} MB 확보`);
+      const skipped = res.skipped.length + res.images_skipped.length;
+      setCleanupMsg({
+        ok: true,
+        text:
+          `정리 완료 — ${parts.join(", ")}` +
+          (skipped > 0 ? ` · 건너뜀 ${skipped}개` : ""),
+      });
+      setSelected(new Set());
+      await Promise.all([load(), loadImages()]);
+    } catch (e) {
+      setCleanupMsg({
+        ok: false,
+        text: isApiError(e) ? e.message : "미사용 정리에 실패했습니다.",
+      });
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
   const canSelect = (c: ContainerListItem) =>
     c.management_state === "unmanaged" || c.management_state === "unknown";
 
@@ -691,6 +735,15 @@ export default function Containers() {
 
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(selectableIds));
+
+  // 일괄 정리 후보는 서버가 계산한 cleanup_eligible를 신뢰한다
+  // (게이트/보호/실행 중/서비스 소속 조건을 API와 동일하게 유지).
+  const cleanupCandidates = items.filter((c) => c.cleanup_eligible);
+  const selectedCleanupIds = items
+    .filter((c) => selected.has(c.id) && c.cleanup_eligible)
+    .map((c) => c.id);
+  const selectionAllCleanable =
+    selected.size > 0 && selectedCleanupIds.length === selected.size;
 
   // 서비스에 연결된 컨테이너를 서비스 단위로 묶어서 표시한다.
   // 연결되지 않은 컨테이너(미관리/미연결)는 마지막 그룹으로 모은다.
@@ -843,6 +896,22 @@ export default function Containers() {
             {allCollapsed ? "모두 펼치기" : "모두 접기"}
           </button>
         ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void runCleanup(cleanupCandidates.map((c) => c.id))}
+          disabled={!actionsEnabled || cleanupCandidates.length === 0 || cleanupBusy}
+          title={
+            actionsEnabled
+              ? "중지된 미관리 컨테이너와 dangling 이미지를 정리합니다"
+              : "HUB_ENABLE_DOCKER_ACTIONS=false"
+          }
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {cleanupBusy
+            ? "정리 중…"
+            : `미사용 정리${cleanupCandidates.length ? ` (${cleanupCandidates.length})` : ""}`}
+        </Button>
         <span className="ml-auto text-xs text-muted-foreground">
           {items.length}개 · CPU/메모리는 docker stats 기준(새로고침 시 갱신, N/A=측정 불가)
         </span>
@@ -874,6 +943,20 @@ export default function Containers() {
             {bulkBusy ? "연결 중…" : "서비스에 연결"}
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runCleanup(selectedCleanupIds)}
+            disabled={!actionsEnabled || !selectionAllCleanable || cleanupBusy}
+            title={
+              selectionAllCleanable
+                ? "선택한 컨테이너를 정리합니다"
+                : "선택 항목 중 정리할 수 없는(실행 중/서비스 소속/보호) 컨테이너가 있습니다"
+            }
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            선택 정리
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             onClick={() => setSelected(new Set())}
@@ -898,6 +981,19 @@ export default function Containers() {
           role="alert"
         >
           {bulkMsg.text}
+        </div>
+      ) : null}
+
+      {cleanupMsg ? (
+        <div
+          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+            cleanupMsg.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+          }`}
+          role="alert"
+        >
+          {cleanupMsg.text}
         </div>
       ) : null}
 
@@ -1093,10 +1189,26 @@ export default function Containers() {
             </span>
           </button>
           {imagesOpen ? (
-            <Button variant="outline" size="sm" onClick={() => void loadImages()}>
-              <RefreshCw className="h-3.5 w-3.5" />
-              새로고침
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void runCleanup([])}
+                disabled={!actionsEnabled || cleanupBusy}
+                title={
+                  actionsEnabled
+                    ? "태그가 없고 사용되지 않는 이미지만 정리합니다"
+                    : "HUB_ENABLE_DOCKER_ACTIONS=false"
+                }
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                dangling 정리
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void loadImages()}>
+                <RefreshCw className="h-3.5 w-3.5" />
+                새로고침
+              </Button>
+            </div>
           ) : null}
         </div>
         {!imagesOpen ? null : (
