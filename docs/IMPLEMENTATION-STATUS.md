@@ -283,6 +283,15 @@
   - UI: 필터 바 `미사용 정리 (N)`, 선택 바 `선택 정리`, Images `dangling 정리`.
   - 테스트: `backend/tests/test_container_cleanup.py` 7건 (게이트/확인/보호/서비스 소속/
     실행 중/이미지 사용 여부/후보 노출), `Containers.test.tsx` 2건.
+  - **실서버 반영·검증 (2026-11-23, commit `3e5d19d`)**:
+    - `docker compose --env-file /srv/service-hub/.env up -d --build backend frontend`
+      (직전 이미지는 `n100-service-hub-{backend,frontend}:pre-cleanup` 태그로 보존).
+    - 후보 3개(`quizzical_shamir`, `sad_robinson`, `sentinel-permfix-permfix-1`, 모두 Exited)만
+      지정해 정리 → 3개 제거, skipped 0. 실행 중/보호 대상(assetnest·infra)은 무변경.
+    - dangling 이미지 79개 제거(크기 합 9,840 MB, 실제 디스크 52G→46G 사용).
+      태그 이미지·볼륨·네트워크·빌드 캐시는 무변경.
+    - 감사 로그: `container.remove`(bulk) 3건, `image.remove` 79건, `cleanup.run` 1건.
+    - 사후: 컨테이너 18개(전부 기존 서비스), `hub-backend` healthy, 대시보드/ MCP 200.
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.
