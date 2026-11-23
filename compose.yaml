@@ -83,8 +83,9 @@ services:
       # AI 온보딩 문서/스크립트를 tailnet에서 읽기 전용으로 제공한다.
       # (대상 PC에 저장소가 없어도 AI가 이 URL만 읽고 준비할 수 있게 한다)
       # 디렉터리 마운트라 파일 갱신이 재생성 없이 바로 반영된다.
-      - ./docs:/usr/share/nginx/html/docs:ro
-      - ./scripts:/usr/share/nginx/html/scripts:ro
+      # HUB_REPO_DIR: 저장소 절대 경로(컨테이너 안에서 compose를 실행할 때 필수)
+      - ${HUB_REPO_DIR:-.}/docs:/usr/share/nginx/html/docs:ro
+      - ${HUB_REPO_DIR:-.}/scripts:/usr/share/nginx/html/scripts:ro
     labels:
       com.hub.managed: "true"
       com.hub.self: "true"
