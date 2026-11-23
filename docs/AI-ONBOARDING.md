@@ -2,6 +2,10 @@
 
 > 최신본: `http://100.85.245.79:8421/docs/AI-ONBOARDING.md` (tailnet 전용)
 > 설정 스크립트: `http://100.85.245.79:8421/scripts/ai-onboard.sh`
+> 소스 업로더: `http://100.85.245.79:8421/scripts/hub-source-upload.sh`
+>
+> 이 문서와 스크립트는 허브 프런트엔드에서 **읽기 전용으로 제공**됩니다.
+> 저장소가 없는 PC에서도 위 URL만으로 시작할 수 있습니다(tailnet 연결 필요).
 >
 > **이 문서를 받은 AI에게**
 > 목표는 이 PC에서 **N100 Service Hub MCP를 사용할 수 있게 준비**하고, 이후 이 PC의
@@ -151,6 +155,13 @@ uv run hub-mcp --print-config    # 설정 골격 확인 (키 플레이스홀더)
 ```bash
 ./scripts/hub-source-upload.sh my-app /path/to/project --dry-run
 ./scripts/hub-source-upload.sh my-app /path/to/project
+```
+
+저장소가 없는 PC에서는 허브에서 받아 실행:
+
+```bash
+curl -fsS http://100.85.245.79:8421/scripts/hub-source-upload.sh -o /tmp/hub-source-upload.sh
+bash /tmp/hub-source-upload.sh my-app /path/to/project
 ```
 
 또는 직접:
