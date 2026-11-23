@@ -13,13 +13,31 @@
 | 항목 | 값 |
 |---|---|
 | 엔드포인트 | `http://100.85.245.79:8422/mcp` (**tailnet 전용**) |
-| systemd | `hub-mcp.service` (User=hyunu, Restart=on-failure) |
-| 환경 파일 | `/srv/service-hub/mcp.env` (root:root 600) |
-| 허브 API | `HUB_URL=http://100.85.245.79:8420/api/v1` |
-| 인증 | 허브 API 키 `X-API-Key` (서버 측 보관) |
+| systemd | `hub-mcp.service` (User=hyunu, Restart=always) |
+| 설치 | `sudo ./mcp-server/deploy/install-remote.sh` |
+| 허브 API | `HUB_URL=http://100.85.245.79:8420/api/v1` (unit에 고정) |
+| 인증 | 요청마다 클라이언트가 `X-API-Key` 전송 (서버에 키 저장 없음) |
 
-> MCP HTTP 엔드포인트 자체에는 인증이 없습니다. **tailnet(100.x)에만 바인드**되어
-> 있고, 키는 서버 프로세스 환경에만 있습니다. tailnet이 신뢰 경계입니다.
+> MCP HTTP 엔드포인트는 **요청마다 `X-API-Key`(또는 `Authorization: Bearer`)가 필요**합니다.
+> 서버는 키를 보관하지 않고, 요청 헤더의 키를 그대로 허브 API 호출에 사용합니다.
+> tailnet(100.x)에만 바인드되어 있고, tailnet이 신뢰 경계입니다.
+
+설치/갱신:
+
+```bash
+# 원격(HTTP) 상주 서버 — sudo 필요 (N100 기준 경로/IP가 unit에 고정)
+sudo ./mcp-server/deploy/install-remote.sh
+
+# 로컬(stdio) — 클라이언트가 프로세스를 직접 실행
+cd mcp-server && uv sync
+uv run hub-mcp --print-config    # 클라이언트 설정 JSON 출력
+uv run hub-mcp                   # stdio 실행
+```
+
+- `scripts/install.sh`(허브 본체)에는 MCP가 포함되지 않습니다 — MCP는 별도 설치입니다.
+- `install-remote.sh`는 N100의 저장소 경로(`/home/hyunu/projects/service_hub`)와
+  tailnet IP(`100.85.245.79`)가 하드코딩되어 있습니다. 다른 호스트에서는
+  `mcp-server/deploy/hub-mcp.service`의 경로/주소를 수정해 사용하세요.
 
 운영:
 
