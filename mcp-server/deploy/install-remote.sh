@@ -37,7 +37,14 @@ REPO_DIR="${REPO_DIR:-$(cd "$HERE/../.." && pwd)}"
 MCP_USER="${MCP_USER:-${SUDO_USER:-$(id -un)}}"
 MCP_HOME="${MCP_HOME:-$(getent passwd "$MCP_USER" | cut -d: -f6)}"
 MCP_HOME="${MCP_HOME:-/home/$MCP_USER}"
-MCP_GROUP="${MCP_GROUP:-$(id -gn "$MCP_USER")}"
+if [ -z "${MCP_GROUP:-}" ]; then
+  # 이 프로젝트의 배포 그룹(hubdeploy)이 있으면 기존 unit 동작을 유지한다.
+  if id -nG "$MCP_USER" 2>/dev/null | tr ' ' '\n' | grep -qx hubdeploy; then
+    MCP_GROUP="hubdeploy"
+  else
+    MCP_GROUP="$(id -gn "$MCP_USER")"
+  fi
+fi
 MCP_PORT="${MCP_PORT:-8422}"
 MCP_HOST="${MCP_HOST:-$(tailscale ip -4 2>/dev/null | head -n1 || true)}"
 MCP_HOST="${MCP_HOST:-127.0.0.1}"
