@@ -11,6 +11,11 @@
   - 게이트 `HUB_ENABLE_ENROLLMENT`(기본 false). `/system/capabilities`에 상태 노출.
   - `scripts/ai-onboard.sh`가 `HUB_ENROLL_TOKEN`을 자동 교환 → 키 파일(0600) 생성.
   - 테스트: `backend/tests/test_enrollment.py` 6건.
+  - **실서버 검증 (2026-11-23)**: `HUB_ENABLE_ENROLLMENT=true` 적용
+    (백업 `.env.bak-20261123-082402`), backend/frontend 재배포 후
+    교환 200 → read 키 조회 200 / 변경 403 `insufficient_scope`, 토큰 재사용 401,
+    감사 `enrollment.exchange` 기록. `ai-onboard.sh`에 실제 토큰을 넣어
+    키 자동 발급 + MCP `initialize` 200까지 확인(키/토큰 미출력).
 - **보호 정책 변경 (2026-11-23)**: 사용자 요청("서비스허브만 보호")으로
   `/srv/service-hub/.env`의 `HUB_PROTECTED_CONTAINERS`/`HUB_PROTECTED_PROJECTS`를 비웠다.
   백업: `.env.bak-20261123-062402`. backend 재생성 후 `asset-nest` `actions_allowed=true`,
