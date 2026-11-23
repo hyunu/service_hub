@@ -459,6 +459,7 @@ function PasskeySettings() {
   const [label, setLabel] = React.useState("");
   const [notice, setNotice] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [platformOk, setPlatformOk] = React.useState<boolean | null>(null);
+  const [httpsOrigin, setHttpsOrigin] = React.useState<string | null>(null);
   const supported = React.useMemo(() => isWebAuthnSupported(), []);
 
   const load = React.useCallback(async () => {
@@ -481,6 +482,12 @@ function PasskeySettings() {
 
   React.useEffect(() => {
     void isPlatformAuthenticatorAvailable().then(setPlatformOk);
+  }, []);
+
+  React.useEffect(() => {
+    fetchSettings()
+      .then((s) => setHttpsOrigin(s.webauthn?.origin ?? null))
+      .catch(() => setHttpsOrigin(null));
   }, []);
 
   const register = async () => {
@@ -543,7 +550,17 @@ function PasskeySettings() {
       <CardContent className="max-w-2xl space-y-3">
         {!supported ? (
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            현재 접속은 HTTPS가 아니어서 브라우저가 생체인식을 차단합니다. HTTPS 주소로 접속하면 사용할 수 있습니다.
+            현재 접속은 HTTPS가 아니어서 브라우저가 생체인식을 차단합니다.{" "}
+            {httpsOrigin ? (
+              <>
+                <a href={httpsOrigin} className="font-medium underline underline-offset-2">
+                  {httpsOrigin}
+                </a>
+                {" "}로 접속하세요. 전환 후에는 새 주소 기준으로 다시 로그인해야 합니다.
+              </>
+            ) : (
+              "HTTPS 주소로 접속하면 사용할 수 있습니다."
+            )}
           </p>
         ) : null}
 

@@ -58,6 +58,18 @@
 - WebAuthn 자격증명은 **공개키만** 저장한다(비밀키/생체 정보 미저장). 챌린지는 1회용 +
   5분 TTL로 메모리에만 두며, `sign_count` 역전(자격증명 복제 의심) 시 인증을 거부한다.
 - WebAuthn 인증 실패는 비밀번호 로그인과 **동일한 잠금 카운터**(5회/5분)를 공유한다.
+- **HTTPS 접속**: 대시보드는 Tailscale Serve의 HTTPS FQDN으로 접속한다
+  (`https://<host>.<tailnet>.ts.net`). `http://<tailnet-ip>:8421`은 보안 컨텍스트가 아니므로
+  브라우저가 WebAuthn을 차단한다.
+  ```bash
+  tailscale serve status        # 예: https://n100-pve-dev.tail7d413d.ts.net -> http://100.85.245.79:8421
+  sudo tailscale serve --bg http://100.85.245.79:8421   # 없을 때 1회 설정
+  ```
+  - tailnet 관리 콘솔에서 HTTPS가 활성화되어 있어야 인증서가 발급된다(`CertDomains` 확인).
+  - `HUB_WEBAUTHN_RP_ID`/`HUB_WEBAUTHN_ORIGIN`은 그 FQDN과 **정확히** 일치해야 한다.
+  - HTTP IP 주소로 접속 중이면 `window.PublicKeyCredential`/`navigator.credentials`가 없어
+    UI가 등록 버튼을 비활성화하고 HTTPS 주소를 안내한다. 호스트가 바뀌면 세션 쿠키도
+    새로 발급되므로 다시 로그인해야 한다.
 - 컨테이너/이미지 조작(시작/정지/제거)은 `HUB_ENABLE_DOCKER_ACTIONS`(기본 false)로 잠근다.
   허브 자신과 보호 대상(`HUB_PROTECTED_CONTAINERS`/`HUB_PROTECTED_PROJECTS`)은 차단하고,
   제거는 실행 중 거부 + 정확한 이름 확인을 요구하며 모든 조작을 감사 로그에 남긴다.

@@ -181,6 +181,12 @@ def get_system_settings(db: Session = Depends(get_db)):
         "loopback_only": settings.loopback_only,
         "monitor_interval": vals.get("monitor_interval", settings.monitor_interval),
         "enable_deploy": settings.enable_deploy,
+        # WebAuthn은 HTTPS(보안 컨텍스트)에서만 동작한다. UI가 HTTPS 주소를 안내할 수 있게 노출.
+        "webauthn": {
+            "enabled": settings.webauthn_enabled,
+            "rp_id": settings.webauthn_rp_id or None,
+            "origin": settings.webauthn_origin or None,
+        },
         "thresholds": {
             "mem_warn_pct": vals.get("mem_warn_pct", settings.mem_warn_pct),
             "mem_crit_pct": vals.get("mem_crit_pct", settings.mem_crit_pct),

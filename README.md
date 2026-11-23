@@ -9,6 +9,15 @@ N100 PC 한 대에서 운영하는 여러 Docker Compose 기반 서비스를 통
 - 무인 배포 운영 가이드: [docs/UNATTENDED-DEPLOY.md](docs/UNATTENDED-DEPLOY.md)
 - 설계/보안/현황: [docs/](docs/) — 구현 상태는 [docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md)
 
+## 접속
+
+- **대시보드(권장): `https://n100-pve-dev.tail7d413d.ts.net`** — Tailscale Serve HTTPS(tailnet 전용).
+  생체인식(WebAuthn)은 이 HTTPS 주소에서만 동작한다.
+- `http://<tailnet-ip>:8421`은 보안 컨텍스트가 아니어서 브라우저가 생체인식을 차단한다.
+- API/MCP: `http://<tailnet-ip>:8420`, `http://<tailnet-ip>:8422` (tailnet).
+- HTTPS 프록시가 없으면 `sudo tailscale serve --bg http://<tailnet-ip>:8421`
+  (자세한 내용: [docs/SECURITY.md](docs/SECURITY.md)).
+
 ## 구성
 
 | 경로 | 내용 |

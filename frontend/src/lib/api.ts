@@ -175,6 +175,12 @@ export interface HubSettings {
     internal_only?: boolean;
     [k: string]: unknown;
   };
+  /** WebAuthn(생체인식) 설정 — HTTPS 접속 안내에 사용 */
+  webauthn?: {
+    enabled: boolean;
+    rp_id: string | null;
+    origin: string | null;
+  };
   [key: string]: unknown;
 }
 
