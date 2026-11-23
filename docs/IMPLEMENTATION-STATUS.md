@@ -280,7 +280,7 @@
     (자동 전체 삭제 없음), 볼륨/네트워크/태그 이미지 무변경, 감사 로그
     (`container.remove`/`image.remove`/`cleanup.run`).
   - `GET /containers`에 `cleanup_eligible`/`cleanup_reason` 추가 — UI가 후보만 선택/활성화.
-  - UI: 필터 바 `미사용 정리 (N)`, 선택 바 `선택 정리`, Images `dangling 정리`.
+  - UI: 페이지 헤더의 `미사용 정리 (N)`(destructive), 선택 바 `선택 정리`, Images `dangling 정리`.
   - 테스트: `backend/tests/test_container_cleanup.py` 7건 (게이트/확인/보호/서비스 소속/
     실행 중/이미지 사용 여부/후보 노출), `Containers.test.tsx` 2건.
   - **실서버 반영·검증 (2026-11-23, commit `3e5d19d`)**:

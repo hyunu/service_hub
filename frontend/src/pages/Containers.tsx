@@ -852,10 +852,30 @@ export default function Containers() {
         title="Containers"
         description="Docker 전체 컨테이너 조회 · 등록 정보와 실제 상태를 분리해서 표시합니다."
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            새로고침
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              새로고침
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => void runCleanup(cleanupCandidates.map((c) => c.id))}
+              disabled={!actionsEnabled || cleanupCandidates.length === 0 || cleanupBusy}
+              title={
+                !actionsEnabled
+                  ? "HUB_ENABLE_DOCKER_ACTIONS=false"
+                  : cleanupCandidates.length === 0
+                    ? "정리할 후보가 없습니다 (중지된 미관리 컨테이너 기준)"
+                    : "중지된 미관리 컨테이너와 dangling 이미지를 정리합니다"
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {cleanupBusy
+                ? "정리 중…"
+                : `미사용 정리${cleanupCandidates.length ? ` (${cleanupCandidates.length})` : ""}`}
+            </Button>
+          </>
         }
       />
 
@@ -896,22 +916,6 @@ export default function Containers() {
             {allCollapsed ? "모두 펼치기" : "모두 접기"}
           </button>
         ) : null}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void runCleanup(cleanupCandidates.map((c) => c.id))}
-          disabled={!actionsEnabled || cleanupCandidates.length === 0 || cleanupBusy}
-          title={
-            actionsEnabled
-              ? "중지된 미관리 컨테이너와 dangling 이미지를 정리합니다"
-              : "HUB_ENABLE_DOCKER_ACTIONS=false"
-          }
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          {cleanupBusy
-            ? "정리 중…"
-            : `미사용 정리${cleanupCandidates.length ? ` (${cleanupCandidates.length})` : ""}`}
-        </Button>
         <span className="ml-auto text-xs text-muted-foreground">
           {items.length}개 · CPU/메모리는 docker stats 기준(새로고침 시 갱신, N/A=측정 불가)
         </span>
