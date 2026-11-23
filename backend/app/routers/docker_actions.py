@@ -10,6 +10,9 @@
 """
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -231,6 +234,7 @@ def stop_service(service_id: str, body: ServiceActionRequest,
         raise HubError(status_code=409, detail="서비스 중지는 confirmed=true 가 필요합니다",
                        code="confirmation_required")
     svc, rows = _service_guard(db, service_id, settings)
+    t0 = time.monotonic()
     gateway = get_gateway()
     snaps = gateway.list_containers()
     if snaps is None:
@@ -241,6 +245,7 @@ def stop_service(service_id: str, body: ServiceActionRequest,
     stopped: list[dict] = []
     skipped: list[dict] = []
     failed: list[dict] = []
+    running: list[Container] = []
     for row in rows:
         base = {"container_id": row.container_id, "name": row.name,
                 "component": row.component_name}
@@ -253,7 +258,24 @@ def stop_service(service_id: str, body: ServiceActionRequest,
             skipped.append({**base, "reason": "이미 중지되어 있습니다",
                             "code": "already_stopped"})
             continue
-        res = gateway.container_stop(row.container_id)
+        running.append(row)
+
+    # 중지는 목적 자체가 전체 정지이므로 병렬로 수행한다 (순차 시 컨테이너당 10초 대기).
+    results: dict[str, dict] = {}
+    if running:
+        with ThreadPoolExecutor(max_workers=min(8, len(running))) as pool:
+            futures = {pool.submit(gateway.container_stop, r.container_id): r.container_id
+                       for r in running}
+            for fut, cid in futures.items():
+                try:
+                    results[cid] = fut.result()
+                except Exception as exc:  # noqa: BLE001 — 실패 사유를 결과에 남긴다
+                    results[cid] = {"ok": False, "error": str(exc)[:300]}
+
+    for row in running:
+        base = {"container_id": row.container_id, "name": row.name,
+                "component": row.component_name}
+        res = results.get(row.container_id, {"ok": False, "error": "알 수 없는 오류"})
         if not res.get("ok"):
             failed.append({**base, "reason": res.get("error") or "알 수 없는 오류"})
             continue
@@ -272,7 +294,8 @@ def stop_service(service_id: str, body: ServiceActionRequest,
     return {"ok": not failed, "service_id": service_id, "action": "stop",
             "stopped": len(stopped), "started": 0,
             "results": {"stopped": stopped, "skipped": skipped, "failed": failed},
-            "runtime_changed": bool(stopped)}
+            "runtime_changed": bool(stopped),
+            "elapsed_ms": int((time.monotonic() - t0) * 1000)}
 
 
 @router.post("/services/{service_id}/restart")
@@ -292,6 +315,7 @@ def restart_service(service_id: str, body: ServiceActionRequest,
         raise HubError(status_code=409, detail="서비스 재시작은 confirmed=true 가 필요합니다",
                        code="confirmation_required")
     svc, rows = _service_guard(db, service_id, settings)
+    t0 = time.monotonic()
     gateway = get_gateway()
     snaps = gateway.list_containers()
     if snaps is None:
@@ -347,7 +371,8 @@ def restart_service(service_id: str, body: ServiceActionRequest,
             "stopped": len(stopped), "started": len(started),
             "results": {"stopped": stopped, "started": started,
                         "skipped": skipped, "failed": failed},
-            "runtime_changed": bool(started or stopped)}
+            "runtime_changed": bool(started or stopped),
+            "elapsed_ms": int((time.monotonic() - t0) * 1000)}
 
 
 @router.post("/containers/cleanup")

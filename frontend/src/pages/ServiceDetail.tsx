@@ -129,8 +129,11 @@ export default function ServiceDetail() {
   const [deleteMsg, setDeleteMsg] = React.useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = React.useState(false);
   // 서비스 단위 중지/재시작
-  const [actionBusy, setActionBusy] = React.useState(false);
+  const [actionKind, setActionKind] = React.useState<"stop" | "restart" | null>(null);
   const [actionMsg, setActionMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  // 하위 탭(Containers 등)이 서비스 액션 후 즉시 다시 조회하도록 하는 버전 키
+  const [dataVersion, setDataVersion] = React.useState(0);
+  const actionBusy = actionKind !== null;
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -156,8 +159,16 @@ export default function ServiceDetail() {
       action === "stop"
         ? `서비스 '${service.name}'의 실행 중 컨테이너 ${service.containers.running}개를 모두 중지합니다.`
         : `서비스 '${service.name}'의 컨테이너를 순차적으로 재시작합니다 (stop→start, 중지된 컨테이너는 시작).`;
-    if (!window.confirm(`${detail}\n계속할까요?`)) return;
-    setActionBusy(true);
+    if (
+      !window.confirm(
+        `${detail}\n` +
+          "SIGTERM에 응답하지 않는 컨테이너는 최대 10초 후 강제 종료(SIGKILL)됩니다.\n" +
+          "계속할까요?",
+      )
+    ) {
+      return;
+    }
+    setActionKind(action);
     setActionMsg(null);
     try {
       const res =
@@ -166,10 +177,12 @@ export default function ServiceDetail() {
           : await restartService(service.id);
       const failed = res.results.failed.length;
       const skipped = res.results.skipped.length;
+      const elapsed =
+        typeof res.elapsed_ms === "number" ? ` (${(res.elapsed_ms / 1000).toFixed(1)}s)` : "";
       setActionMsg({
         ok: res.ok,
         text:
-          `${label} ${res.ok ? "완료" : "일부 실패"} — ` +
+          `${label} ${res.ok ? "완료" : "일부 실패"}${elapsed} — ` +
           (action === "stop"
             ? `중지 ${res.stopped}개`
             : `시작 ${res.started}개 / 중지 ${res.stopped}개`) +
@@ -177,17 +190,20 @@ export default function ServiceDetail() {
           (failed ? ` · 실패 ${failed}개` : ""),
       });
       await load();
+      // Containers 탭이 같은 화면에서 즉시 다시 조회하도록 신호를 보낸다.
+      setDataVersion((v) => v + 1);
     } catch (e) {
       setActionMsg({
         ok: false,
         text: isApiError(e) ? e.message : `${label}에 실패했습니다.`,
       });
     } finally {
-      setActionBusy(false);
+      setActionKind(null);
     }
   };
 
-  const doDelete = async () => {    setDeleteBusy(true);
+  const doDelete = async () => {
+    setDeleteBusy(true);
     setDeleteMsg(null);
     try {
       const res = await deleteService(serviceId);
@@ -234,7 +250,14 @@ export default function ServiceDetail() {
               <ArrowLeft className="h-3.5 w-3.5" />
               목록
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void load()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void load();
+                setDataVersion((v) => v + 1);
+              }}
+            >
               <RefreshCw className="h-3.5 w-3.5" />
               새로고침
             </Button>
@@ -246,7 +269,7 @@ export default function ServiceDetail() {
               title={service.actions_reason ?? "서비스의 모든 컨테이너를 중지합니다"}
             >
               <Square className="h-3.5 w-3.5" />
-              중지
+              {actionKind === "stop" ? "중지 중…" : "중지"}
             </Button>
             <Button
               variant="secondary"
@@ -256,7 +279,7 @@ export default function ServiceDetail() {
               title={service.actions_reason ?? "서비스의 컨테이너를 순차 재시작합니다"}
             >
               <RotateCw className="h-3.5 w-3.5" />
-              재시작
+              {actionKind === "restart" ? "재시작 중…" : "재시작"}
             </Button>
             <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
               <Trash2 className="h-3.5 w-3.5" />
@@ -532,7 +555,7 @@ export default function ServiceDetail() {
 
         {/* ---------------- Containers ---------------- */}
         <TabsContent value="containers">
-          <ServiceContainers serviceId={service.id} />
+          <ServiceContainers serviceId={service.id} refreshKey={dataVersion} />
         </TabsContent>
 
         {/* ---------------- Endpoints ---------------- */}
@@ -689,7 +712,13 @@ function ServiceGroupingCard({ serviceId, onChanged }: { serviceId: string; onCh
   );
 }
 
-function ServiceContainers({ serviceId }: { serviceId: string }) {
+function ServiceContainers({
+  serviceId,
+  refreshKey = 0,
+}: {
+  serviceId: string;
+  refreshKey?: number;
+}) {
   const [items, setItems] = React.useState<ContainerListItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -706,7 +735,7 @@ function ServiceContainers({ serviceId }: { serviceId: string }) {
 
   React.useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const detach = async (c: ContainerListItem) => {
     if (

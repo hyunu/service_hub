@@ -1075,6 +1075,8 @@ export interface ServiceActionResponse {
     failed: ServiceActionResultItem[];
   };
   runtime_changed: boolean;
+  /** 서버 처리 소요 시간 (ms) */
+  elapsed_ms?: number;
 }
 
 /** 서비스의 컨테이너를 모두 중지한다 (보호 대상 포함 시 403, confirmed 필수). */

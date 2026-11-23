@@ -308,6 +308,12 @@
   - UI: 서비스 상세 헤더 `중지`/`재시작` 버튼(확인 다이얼로그 + 결과/사유 표시).
   - MCP: `hub_service_stop`, `hub_service_restart`(confirmed=true).
   - 테스트: `backend/tests/test_service_actions.py` 7건, MCP 3건, 프론트 API 계약 2건.
+  - **후속 수정 (2026-11-23, 실사용 피드백)**:
+    - 중지가 컨테이너별 SIGTERM 10초 대기 × 순차 처리로 최대 40초 걸리던 문제 →
+      중지 단계를 병렬 실행(최대 ~10초)하고 응답에 `elapsed_ms` 추가.
+    - UI 버튼에 `중지 중…`/`재시작 중…` 표시, 확인창에 SIGKILL(10초) 안내.
+    - 액션 완료 후 **Containers 탭이 즉시 재조회**되도록 `dataVersion` 신호 전달
+      (기존에는 탭을 나갔다 들어와야 갱신됨).
 - **배포 롤백 (2026-10-22)**:
   - 배포 시 `service.yaml`/`compose.yaml` 스냅샷(`HUB_DEPLOY_SNAPSHOT_DIR`,
     기본 `/data/deploy-snapshots`, `.env` 제외)을 남긴다.
