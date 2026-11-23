@@ -197,7 +197,7 @@ claude mcp add --transport http n100-service-hub http://100.85.245.79:8422/mcp
 ```
 
 키는 **Settings → API 키**에서 발급합니다(평문은 1회만 표시).
-서버 상주 키는 `/srv/service-hub/mcp.env`에서 확인할 수 있습니다(권한 필요).
+서버는 API 키를 저장하지 않으므로, 클라이언트마다 키를 발급해 헤더로 전달합니다.
 
 ## 5. 안전 / 제약
 
