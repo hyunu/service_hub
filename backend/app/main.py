@@ -17,6 +17,7 @@ from .routers import apikeys as apikeys_router
 from .routers import auth as auth_router
 from .routers import containers as containers_router
 from .routers import docker_actions as docker_actions_router
+from .routers import enrollment as enrollment_router
 from .routers import events as events_router
 from .routers import ports as ports_router
 from .routers import resources as resources_router
@@ -85,6 +86,7 @@ def create_app(settings: Settings | None = None,
     p = API_PREFIX
     app.include_router(auth_router.router, prefix=f"{p}")
     app.include_router(apikeys_router.router, prefix=f"{p}")
+    app.include_router(enrollment_router.router, prefix=f"{p}")
     app.include_router(webauthn_router.router, prefix=f"{p}")
     app.include_router(system_router.router, prefix=f"{p}")
     app.include_router(services_router, prefix=f"{p}")

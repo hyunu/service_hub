@@ -998,6 +998,58 @@ export function revokeApiKey(id: string): Promise<ApiKeyInfo & { revoked: boolea
 }
 
 /* ------------------------------------------------------------------ */
+/* 일회용 등록 토큰 (AI 온보딩)                                        */
+/* ------------------------------------------------------------------ */
+
+export interface EnrollmentTokenInfo {
+  id: string;
+  name: string;
+  scopes: string[];
+  created_at: string;
+  created_by: string;
+  expires_at: string;
+  used_at: string | null;
+  used_by_ip: string | null;
+  revoked_at: string | null;
+  active: boolean;
+}
+
+export interface EnrollmentTokenCreated extends EnrollmentTokenInfo {
+  token: string;
+  ttl_minutes: number;
+  note?: string;
+}
+
+export interface EnrollmentTokenCreatePayload {
+  name: string;
+  scopes?: string[];
+  ttl_minutes?: number;
+}
+
+export function fetchEnrollmentTokens(
+  signal?: AbortSignal,
+): Promise<EnrollmentTokenInfo[]> {
+  return get<unknown>("/enrollment/tokens", undefined, signal).then((r) =>
+    unwrapList<EnrollmentTokenInfo>(r),
+  );
+}
+
+export function createEnrollmentToken(
+  body: EnrollmentTokenCreatePayload,
+): Promise<EnrollmentTokenCreated> {
+  return send<EnrollmentTokenCreated>("/enrollment/tokens", "POST", body);
+}
+
+export function revokeEnrollmentToken(
+  id: string,
+): Promise<EnrollmentTokenInfo & { revoked: boolean }> {
+  return send<EnrollmentTokenInfo & { revoked: boolean }>(
+    `/enrollment/tokens/${encodeURIComponent(id)}`,
+    "DELETE",
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 서비스                                                              */
 /* ------------------------------------------------------------------ */
 

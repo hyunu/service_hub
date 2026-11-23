@@ -52,6 +52,21 @@ sudo systemctl restart hub-mcp
 sudo journalctl -u hub-mcp -n 50 --no-pager
 ```
 
+### 1.1 AI 등록 토큰 (일회용)
+
+대상 PC의 AI가 **키를 직접 복사하지 않고** 1회용 토큰을 교환해 API 키를 받는다.
+
+1. 대시보드 **Settings → API 키 → AI 등록 토큰**에서 이름/권한/유효(분, 최대 60) 생성
+2. 표시된 `enroll_...` 토큰을 AI에 전달 (1회용, 만료 후 무효)
+3. AI가 교환:
+   ```bash
+   HUB_ENROLL_TOKEN='enroll_...' ./scripts/ai-onboard.sh --client opencode
+   # 또는: POST /api/v1/auth/enroll {"token":"enroll_..."} → {"api_key":"hub_..."}
+   ```
+- 서버 게이트: `HUB_ENABLE_ENROLLMENT=true` (기본 false)
+- 안전장치: 세션 전용 발급, 1회용, 짧은 TTL, IP별 실패 제한(429), 감사 로그
+  (`enrollment.create`/`enrollment.exchange`/`enrollment.revoke`)
+
 ## 2. 도구 (28개)
 
 ### 조회

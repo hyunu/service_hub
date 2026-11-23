@@ -174,6 +174,8 @@ MCP 서버(`mcp-server/`)는 기존 REST API만 호출하며, 임의 셸 실행 
 
 1. 대시보드 **Settings → API 키**에서 키를 발급한다 (평문은 1회만 표시).
    - 조회만 필요하면 `읽기 전용`, 배포까지 필요하면 전체 권한.
+   - 키를 직접 복사하지 않으려면 **AI 등록 토큰**(1회용, 최대 60분)을 발급해
+     `HUB_ENROLL_TOKEN`으로 AI에 전달한다 (`POST /auth/enroll`로 키 교환).
 2. AI 클라이언트 설정에 MCP 서버를 등록한다 (`mcp-server/README.md` §3).
    - **대상 PC의 AI가 처음부터 준비**해야 하면 [`docs/AI-ONBOARDING.md`](docs/AI-ONBOARDING.md)를 읽히고
      `scripts/ai-onboard.sh`를 실행하게 한다(키 파일만 사람이 준비).

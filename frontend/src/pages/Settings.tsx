@@ -15,14 +15,19 @@ import {
 import {
   changePassword,
   createApiKey,
+  createEnrollmentToken,
   fetchApiKeys,
   fetchAuditLogs,
+  fetchEnrollmentTokens,
   fetchSettings,
   isApiError,
   revokeApiKey,
+  revokeEnrollmentToken,
   updateSettings,
   type ApiKeyInfo,
   type AuditLog,
+  type EnrollmentTokenCreated,
+  type EnrollmentTokenInfo,
   type HubSettings,
 } from "../lib/api";
 import {
@@ -921,6 +926,267 @@ function ApiKeySettings() {
   );
 }
 
+/* --------------------------- AI 등록 토큰 --------------------------- */
+
+function EnrollmentSettings() {
+  const [items, setItems] = React.useState<EnrollmentTokenInfo[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [readOnly, setReadOnly] = React.useState(false);
+  const [ttl, setTtl] = React.useState("10");
+  const [created, setCreated] = React.useState<EnrollmentTokenCreated | null>(null);
+  const [notice, setNotice] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setError(null);
+    try {
+      setItems(await fetchEnrollmentTokens());
+    } catch (e) {
+      setError(isApiError(e) ? e.message : "등록 토큰 목록을 불러오지 못했습니다.");
+      setItems([]);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setNotice({ ok: false, text: "토큰 이름을 입력하세요." });
+      return;
+    }
+    const minutes = Number(ttl);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) {
+      setNotice({ ok: false, text: "유효 시간은 1~60분 사이여야 합니다." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setCreated(null);
+    try {
+      const res = await createEnrollmentToken({
+        name: name.trim(),
+        scopes: readOnly ? ["read"] : ["*"],
+        ttl_minutes: minutes,
+      });
+      setCreated(res);
+      setName("");
+      setReadOnly(false);
+      setTtl("10");
+      await load();
+      setNotice({ ok: true, text: "등록 토큰을 발급했습니다. 토큰은 이 화면에서만 한 번 표시됩니다." });
+    } catch (e2) {
+      setNotice({ ok: false, text: isApiError(e2) ? e2.message : "토큰 발급에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (t: EnrollmentTokenInfo) => {
+    if (!window.confirm(`등록 토큰 '${t.name}'을(를) 폐기할까요? 아직 사용 전이면 즉시 무효가 됩니다.`)) {
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      await revokeEnrollmentToken(t.id);
+      await load();
+      setNotice({ ok: true, text: "등록 토큰을 폐기했습니다." });
+    } catch (e) {
+      setNotice({ ok: false, text: isApiError(e) ? e.message : "폐기에 실패했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async (text: string) => {
+    const ok = await copyText(text);
+    setCopied(ok);
+    if (!ok) {
+      setNotice({ ok: false, text: "복사에 실패했습니다. 브라우저 권한 또는 HTTPS 접속을 확인하세요." });
+      return;
+    }
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  const snippet = created
+    ? `HUB_ENROLL_TOKEN='${created.token}' ./scripts/ai-onboard.sh --mode auto --client opencode --hub-url http://${window.location.hostname}:8420/api/v1`
+    : "";
+
+  const status = (t: EnrollmentTokenInfo) => {
+    if (t.revoked_at) return { variant: "unknown" as const, label: "폐기됨" };
+    if (t.used_at) return { variant: "secondary" as const, label: "사용됨" };
+    if (!t.active) return { variant: "warn" as const, label: "만료" };
+    return { variant: "ok" as const, label: "활성" };
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-1">
+        <CardTitle className="inline-flex items-center gap-1.5">
+          <KeyRound className="h-4 w-4 text-primary" />
+          AI 등록 토큰 (일회용)
+        </CardTitle>
+        <CardDescription>
+          대상 PC의 AI가 <code>/auth/enroll</code>로 1회 교환해 API 키를 받는 짧은 수명 토큰입니다.
+          키를 직접 복사하지 않아도 되며, 토큰은 1회용입니다.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[12rem] flex-1">
+            <Label htmlFor="enroll-name" required>
+              이름
+            </Label>
+            <Input
+              id="enroll-name"
+              value={name}
+              placeholder="예: macbook-air"
+              maxLength={120}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="w-32">
+            <Label htmlFor="enroll-ttl">유효(분)</Label>
+            <Input
+              id="enroll-ttl"
+              type="number"
+              min={1}
+              max={60}
+              value={ttl}
+              onChange={(e) => setTtl(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <label className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={readOnly}
+              onChange={(e) => setReadOnly(e.target.checked)}
+              disabled={busy}
+            />
+            읽기 전용
+          </label>
+          <Button type="submit" size="sm" disabled={busy}>
+            <Plus className="h-3.5 w-3.5" />
+            {busy ? "발급 중…" : "토큰 발급"}
+          </Button>
+        </form>
+
+        {created ? (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <div className="mb-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+              새 등록 토큰 — 지금 복사하세요. 다시 표시되지 않습니다. ({created.ttl_minutes}분 유효)
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 break-all rounded bg-background/70 px-2 py-1.5 font-mono text-xs">
+                {created.token}
+              </code>
+              <Button size="sm" variant="outline" onClick={() => void copy(created.token)}>
+                <Copy className="h-3.5 w-3.5" />
+                {copied ? "복사됨" : "복사"}
+              </Button>
+            </div>
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              대상 PC에서 실행 (키 파일이 자동 생성됩니다):
+            </div>
+            <pre className="mt-1 max-h-32 overflow-auto rounded bg-background/70 p-2 font-mono text-[11px] leading-relaxed">
+              {snippet}
+            </pre>
+            <div className="mt-1 flex justify-end">
+              <Button size="sm" variant="ghost" onClick={() => void copy(snippet)}>
+                <Copy className="h-3.5 w-3.5" />
+                명령 복사
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {notice ? (
+          <div
+            className={`rounded-md border px-3 py-2 text-xs ${
+              notice.ok
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+            }`}
+            role="alert"
+          >
+            {notice.text}
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        {items === null ? (
+          <p className="text-xs text-muted-foreground">불러오는 중…</p>
+        ) : items.length === 0 ? (
+          <p className="text-xs text-muted-foreground">발급된 등록 토큰이 없습니다.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead>권한</TableHead>
+                  <TableHead>만료</TableHead>
+                  <TableHead>상태</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((t) => {
+                  const s = status(t);
+                  return (
+                    <TableRow key={t.id}>
+                      <TableCell className="font-medium">{t.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {(t.scopes ?? []).map((x) => SCOPE_LABEL[x] ?? x).join(", ")}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateTime(t.expires_at)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={s.variant}>{s.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void revoke(t)}
+                          disabled={busy || !!t.revoked_at}
+                          aria-label={`${t.name} 폐기`}
+                          title="폐기"
+                        >
+                          <Ban className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <ul className="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+          <li>• 토큰은 1회만 사용할 수 있고, 만료 후에는 교환되지 않습니다.</li>
+          <li>• 서버에서 <code>HUB_ENABLE_ENROLLMENT=true</code>일 때만 동작합니다.</li>
+          <li>• AI는 토큰을 API 키로 교환한 뒤 키만 저장합니다(토큰 값은 출력하지 않음).</li>
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ------------------------------ 감사 로그 탭 ------------------------------ */
 
 function AuditLogViewer() {
@@ -1024,7 +1290,10 @@ export default function Settings() {
           </div>
         </TabsContent>
         <TabsContent value="apikeys">
-          <ApiKeySettings />
+          <div className="space-y-4">
+            <ApiKeySettings />
+            <EnrollmentSettings />
+          </div>
         </TabsContent>
         <TabsContent value="audit">
           <AuditLogViewer />

@@ -258,3 +258,24 @@ class ApiKey(Base):
     expires_at: Mapped[str | None] = mapped_column(String(40))
     revoked_at: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(120), default="")
+
+
+class EnrollmentToken(Base):
+    """AI 온보딩용 **일회용 등록 토큰** (해시만 저장).
+
+    대시보드(세션)에서 짧은 TTL로 발급하고, 대상 PC의 AI가
+    ``POST /auth/enroll`` 로 1회 교환해 일반 API 키를 받는다.
+    평문 토큰은 생성 응답에서만 노출되며, 사용/폐기/만료 후 재사용할 수 없다.
+    """
+    __tablename__ = "enrollment_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    scopes: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[str] = mapped_column(String(40), default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+    expires_at: Mapped[str] = mapped_column(String(40))
+    used_at: Mapped[str | None] = mapped_column(String(40))
+    used_by_ip: Mapped[str | None] = mapped_column(String(64))
+    revoked_at: Mapped[str | None] = mapped_column(String(40))

@@ -506,6 +506,9 @@ JSON 제공. 시간은 ISO 8601. 실제 조회 시각과 마지막 정상 수집
     - scope(read/write/deploy/*)로 권한을 제한하며, read 키는 변경 요청을 할 수 없다.
     - 폐기 즉시 인증이 거부되고, 인증 사용은 감사 로그에 `apikey:<이름>` 주체로 남는다.
     - API 키 경로도 기존 배포 잠금(HUB_ENABLE_DEPLOY)과 화이트리스트 검증을 그대로 따른다.
+    - 키 복사를 피하기 위해 **일회용 등록 토큰**(세션 전용 발급, 1회용, 최대 60분)을 제공한다.
+      교환(`POST /auth/enroll`)은 유효 토큰 필수·IP별 실패 제한·감사 로그를 적용하고
+      환경 설정(`HUB_ENABLE_ENROLLMENT`, 기본 false)으로 잠근다.
 20. 소스 업로드 API는 기본 잠금이며, 서비스 ID로 경로를 한정하고 아카이브 멤버를
     검증(상대 경로·일반 파일만, 크기/개수 상한)한 뒤에만 기록한다. 업로드는 감사 로그에 남긴다.
 
@@ -545,9 +548,14 @@ GET    /api/v1/audit-logs
 GET    /api/v1/apikeys
 POST   /api/v1/apikeys
 DELETE /api/v1/apikeys/{key_id}
+GET    /api/v1/enrollment/tokens
+POST   /api/v1/enrollment/tokens
+DELETE /api/v1/enrollment/tokens/{token_id}
+POST   /api/v1/auth/enroll
 ```
 
-`POST/GET/DELETE /apikeys`는 브라우저 세션 전용이며, 나머지 API는 `X-API-Key`
+`POST/GET/DELETE /apikeys`와 `/enrollment/tokens`는 브라우저 세션 전용이며,
+`POST /auth/enroll`은 일회용 토큰만으로 호출한다. 나머지 API는 `X-API-Key`
 (또는 `Authorization: Bearer <key>`)로도 호출할 수 있다 (AI/MCP 클라이언트).
 REST 규칙, 인증, 권한, 오류 응답 형식을 통일한다.
 서비스 삭제 API는 컨테이너와 볼륨을 자동 삭제하지 않는다. 관리 정보 삭제와 실제 실행 환경 삭제를 명확히 구분한다.

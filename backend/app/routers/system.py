@@ -157,6 +157,11 @@ def capabilities(request: Request, auth: dict = Depends(require_auth)):
             "note": "원격 MCP는 호출자 PC의 파일을 읽을 수 없다. 로컬 MCP 또는 REST 업로드를 사용하라.",
         },
         "docker_actions": {"enabled": settings.enable_docker_actions},
+        "enrollment": {
+            "enabled": settings.enable_enrollment,
+            "ttl_minutes": settings.enrollment_ttl_minutes,
+            "max_ttl_minutes": settings.enrollment_max_ttl_minutes,
+        },
         "ports": {
             "host_range": range_label(),
             "reservation_required": False,

@@ -7,7 +7,8 @@
 #   ./scripts/ai-onboard.sh --client print
 #
 # 키: HUB_API_KEY 환경변수 또는 --key-file (기본 ~/.config/n100-hub/api-key)
-#     키 값은 절대 출력하지 않는다.
+#     HUB_ENROLL_TOKEN 이 있으면 /auth/enroll 로 1회 교환해 키 파일을 자동 생성한다.
+#     키/토큰 값은 절대 출력하지 않는다.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,7 +32,7 @@ while [ $# -gt 0 ]; do
     --mode) MODE="$2"; shift ;;
     --client) CLIENT="$2"; shift ;;
     --no-verify) VERIFY=0 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
   esac
   shift
@@ -66,14 +67,53 @@ if [ -z "$MCP_URL" ]; then
 fi
 HEALTH_URL="$(printf '%s' "$HUB_URL" | sed -E 's#/api/v1/?$##')/healthz"
 
-# ------------------------------------------------------------------ 키 --
-if [ -n "${HUB_API_KEY:-}" ]; then
-  KEY="$HUB_API_KEY"
-else
-  [ -f "$KEY_FILE" ] || fail "키 파일이 없습니다: $KEY_FILE — 대시보드 Settings → API 키에서 발급해 저장하세요."
-  KEY="$(tr -d '\r\n' < "$KEY_FILE")"
+# --------------------------------------------------- 등록 토큰 자동 교환 --
+KEY=""
+SKIP_AUTH=0
+if [ -n "${HUB_ENROLL_TOKEN:-}" ] && [ -z "${HUB_API_KEY:-}" ] && [ ! -f "$KEY_FILE" ]; then
+  if [ "$DRY" -eq 1 ]; then
+    # 1회용 토큰을 dry-run 에서 소모하지 않는다.
+    SKIP_AUTH=1
+    log "== 등록 토큰 (dry-run) =="
+    log "  note: 토큰을 소모하지 않도록 교환을 생략합니다 (실제 실행 시 1회 교환)"
+  else
+    log "== 등록 토큰 교환 (1회용) =="
+    RESP=""
+    for i in 1 2 3; do
+      RESP="$(curl -fsS -m 15 -X POST "$HUB_URL/auth/enroll" \
+        -H 'Content-Type: application/json' \
+        -d "{\"token\":\"$HUB_ENROLL_TOKEN\"}" 2>/dev/null || true)"
+      [ -n "$RESP" ] && break
+      sleep 1
+    done
+    KEY="$(printf '%s' "$RESP" | python3 -c '
+import json,sys
+try:
+    print(json.load(sys.stdin).get("api_key",""))
+except Exception:
+    print("")
+' 2>/dev/null)"
+    [ -n "$KEY" ] || fail "등록 토큰 교환 실패 — 만료/사용/폐기 또는 HUB_ENABLE_ENROLLMENT 확인"
+    mkdir -p "$(dirname "$KEY_FILE")"
+    printf '%s' "$KEY" > "$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+    log "  ok: API 키 발급 → $KEY_FILE (값 미출력)"
+    unset RESP
+  fi
 fi
-case "$KEY" in hub_*) ;; *) fail "API 키 형식이 아닙니다(hub_...). 대시보드에서 재발급하세요." ;; esac
+
+# ------------------------------------------------------------------ 키 --
+if [ "$SKIP_AUTH" -eq 0 ] && [ -z "$KEY" ]; then
+  if [ -n "${HUB_API_KEY:-}" ]; then
+    KEY="$HUB_API_KEY"
+  else
+    [ -f "$KEY_FILE" ] || fail "키 파일이 없습니다: $KEY_FILE — 대시보드 Settings → API 키에서 발급해 저장하세요."
+    KEY="$(tr -d '\r\n' < "$KEY_FILE")"
+  fi
+fi
+if [ "$SKIP_AUTH" -eq 0 ]; then
+  case "$KEY" in hub_*) ;; *) fail "API 키 형식이 아닙니다(hub_...). 대시보드에서 재발급하세요." ;; esac
+fi
 
 # ----------------------------------------------------------------- 모드 --
 case "$MODE" in
@@ -107,7 +147,11 @@ log "  hub    : $HUB_URL"
 log "  mcp    : $MCP_URL"
 log "  mode   : $MODE"
 log "  client : $CLIENT${CONFIG:+ ($CONFIG)}"
-log "  key    : ${KEY_FILE} (length ${#KEY})"   # 값은 출력하지 않는다
+if [ "$SKIP_AUTH" -eq 1 ]; then
+  log "  key    : (dry-run — 교환 생략)"
+else
+  log "  key    : ${KEY_FILE} (length ${#KEY})"   # 값은 출력하지 않는다
+fi
 
 # -------------------------------------------------------------- 사전 점검 --
 log "== 사전 점검 =="
@@ -118,17 +162,21 @@ for i in 1 2 3; do
 done
 log "  ok: hub health"
 CAPS=""
-for i in 1 2 3; do
-  CAPS="$(curl -fsS -m 15 -H "X-API-Key: $KEY" "$HUB_URL/system/capabilities" 2>/dev/null || true)"
-  [ -n "$CAPS" ] && break
-  sleep 1
-done
-[ -n "$CAPS" ] || fail "API 키 인증 실패(401/403) 또는 허브 응답 없음. 대시보드에서 키 상태/scope 확인"
-printf '%s' "$CAPS" | python3 -c '
+if [ "$SKIP_AUTH" -eq 1 ]; then
+  log "  note: auth 점검 생략 (dry-run, 토큰 미소모)"
+else
+  for i in 1 2 3; do
+    CAPS="$(curl -fsS -m 15 -H "X-API-Key: $KEY" "$HUB_URL/system/capabilities" 2>/dev/null || true)"
+    [ -n "$CAPS" ] && break
+    sleep 1
+  done
+  [ -n "$CAPS" ] || fail "API 키 인증 실패(401/403) 또는 허브 응답 없음. 대시보드에서 키 상태/scope 확인"
+  printf '%s' "$CAPS" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)
 print("  ok: api key", d.get("auth",{}).get("scopes"), "| deploy:", d.get("deploy",{}).get("enabled"))
 '
+fi
 if [ "$MODE" = "local" ]; then
   if [ "$DRY" -eq 1 ]; then
     # dry-run 은 환경을 변경하지 않는다 (uv sync 생략).

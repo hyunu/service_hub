@@ -30,15 +30,25 @@
 
 | 항목 | 동작 |
 |---|---|
-| API 키 발급 | **대시보드 Settings → API 키** (평문 1회 표시) |
+| API 키 발급 | **대시보드 Settings → API 키** (평문 1회 표시) 또는 **AI 등록 토큰**(1회용) |
 | 키 보관 | 이 PC의 `~/.config/n100-hub/api-key` (0600) — AI는 읽되 **출력 금지** |
 | 서버 키 | 서버는 키를 저장하지 않음. 요청마다 `X-API-Key`로 전달 |
 | 네트워크 | 허브/MCP는 **tailnet 전용** (공인 인터넷 노출 없음) |
 | 권한 | `read`(조회) / `write`·`deploy`(변경·배포), 만료·폐기 가능 |
 | 감사 | 변경 작업은 허브 감사 로그에 기록 |
 
-**사람이 하는 단 한 가지**: 대시보드에서 키를 발급해 아래 파일로 넣는다.
+**사람이 하는 일은 둘 중 하나** (권장: A)
 
+**A. 일회용 등록 토큰 (키 복사 없음)**
+1. 대시보드 `http://100.85.245.79:8421/settings` → **API 키** → **AI 등록 토큰** → 이름/권한/유효(분) → 발급
+2. 표시된 `enroll_...` 토큰을 AI에 전달 (10분 후 자동 만료, 1회용)
+3. AI가 자동 교환:
+   ```bash
+   HUB_ENROLL_TOKEN='enroll_...' ./scripts/ai-onboard.sh --client opencode
+   # → /auth/enroll 로 API 키 발급 → ~/.config/n100-hub/api-key (0600) 저장
+   ```
+
+**B. API 키 직접 발급**
 ```bash
 # 사용자(사람)가 실행 — 입력은 화면에 보이지 않는다
 umask 077
@@ -49,6 +59,7 @@ chmod 600 ~/.config/n100-hub/api-key
 
 > AI는 이 파일을 읽어 설정에 넣을 수 있지만, **값을 채팅/로그/커밋에 출력하면 안 된다.**
 > 키가 노출됐다면 즉시 대시보드에서 폐기 후 재발급한다.
+> 등록 토큰은 서버에서 `HUB_ENABLE_ENROLLMENT=true`일 때만 동작한다.
 
 ---
 
@@ -74,6 +85,15 @@ bash /tmp/ai-onboard.sh --mode remote --client opencode \
 - `--client opencode|cursor|print` : 설정 대상 / 출력만
 - `--hub-url`, `--hub-host`, `--key-file`, `--mode`, `--dry-run`
 - 설정 파일은 백업 후 600 권한으로 기록하고, 키 값은 출력하지 않는다.
+- `HUB_ENROLL_TOKEN`이 있으면 키 파일이 없어도 자동 교환한다:
+  ```bash
+  HUB_ENROLL_TOKEN='enroll_...' ./scripts/ai-onboard.sh --client opencode
+  ```
+- 저장소가 없는 PC에서도 등록 토큰으로 시작할 수 있다:
+  ```bash
+  HUB_ENROLL_TOKEN='enroll_...' bash /tmp/ai-onboard.sh --mode remote \
+    --client opencode --hub-url http://100.85.245.79:8420/api/v1
+  ```
 
 스크립트를 쓸 수 없으면 아래 수동 절차를 따른다.
 
@@ -273,6 +293,8 @@ hub_deployments_list(service_id) # 이력, 롤백 대상 확인
 | 증상 | 원인 | 조치 |
 |---|---|---|
 | `401 unauthorized` | 키 없음/오타/폐기/만료 | 대시보드에서 재발급 → 키 파일 교체 |
+| `401 invalid_enrollment_token` | 토큰 만료/사용/폐기/오타 | 대시보드에서 새 토큰 발급(1회용) |
+| `503 enrollment_disabled` | 서버 `HUB_ENABLE_ENROLLMENT=false` | 운영자가 `.env`에서 켜고 backend 재기동 |
 | `403 insufficient_scope` | `read` 키 | `write`/`*` scope 재발급 |
 | MCP 도구가 안 보임 | 클라이언트 재시작 필요 / URL 오류 | 앱 재시작, `/mcp` 경로 확인 |
 | remote 모드에서 sync 실패 | 원격은 N100 파일만 읽음 | local 모드 또는 `hub-source-upload.sh` |

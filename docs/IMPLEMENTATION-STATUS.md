@@ -1,8 +1,16 @@
 # IMPLEMENTATION STATUS
 
-최종 갱신: 2026-11-23 (미사용 컨테이너 일괄 정리 API/UI 추가)
+최종 갱신: 2026-11-23 (AI 일회용 등록 토큰·온보딩 자동화)
 
 ## 완료
+- **AI 일회용 등록 토큰 (2026-11-23)**:
+  - 대시보드(Settings → API 키)에서 1회용 토큰 발급 → 대상 PC의 AI가
+    `POST /api/v1/auth/enroll`로 교환해 API 키 획득. 키 복사 불필요.
+  - 세션 전용 발급/조회/폐기(`/enrollment/tokens`), TTL 최대 60분, 1회용,
+    IP별 실패 제한(429), 감사 로그(`enrollment.create/exchange/revoke`).
+  - 게이트 `HUB_ENABLE_ENROLLMENT`(기본 false). `/system/capabilities`에 상태 노출.
+  - `scripts/ai-onboard.sh`가 `HUB_ENROLL_TOKEN`을 자동 교환 → 키 파일(0600) 생성.
+  - 테스트: `backend/tests/test_enrollment.py` 6건.
 - **보호 정책 변경 (2026-11-23)**: 사용자 요청("서비스허브만 보호")으로
   `/srv/service-hub/.env`의 `HUB_PROTECTED_CONTAINERS`/`HUB_PROTECTED_PROJECTS`를 비웠다.
   백업: `.env.bak-20261123-062402`. backend 재생성 후 `asset-nest` `actions_allowed=true`,

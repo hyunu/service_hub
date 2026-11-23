@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # 보호 대상(콤마 구분). 이름 접두사/정확히 일치, compose 프로젝트명.
     protected_containers: str = ""
     protected_projects: str = ""
+    # AI 온보딩용 일회용 등록 토큰 (대시보드 발급 → /auth/enroll 로 1회 교환). 기본 잠금.
+    enable_enrollment: bool = False
+    enrollment_ttl_minutes: int = 10
+    enrollment_max_ttl_minutes: int = 60
     docker_socket: str = "/var/run/docker.sock"
 
     # 자원 임계값 (%)
